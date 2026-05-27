@@ -18,7 +18,7 @@ import type { MouseEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { SHOW_DEBUG, TENANT_ID, api, clearAuthSession, getAuthSession, streamChatTurn } from '../api/client';
-import type { ChatMessage, ChatSession, ChatTurnResponse, UIConfigRead } from '../types';
+import type { ChatMessage, ChatSession, ChatTurnResponse, TurnTraceRead, UIConfigRead } from '../types';
 
 type SessionSlot = {
   serverMessages: ChatMessage[];
@@ -105,6 +105,17 @@ function attachTurnIdsToServerMessages(
   const result = serverMessages.map((messageItem) => {
     const previousTurnId = previousTurnIds.get(messageItem.id);
     return previousTurnId ? { ...messageItem, turnId: previousTurnId } : messageItem;
+  });
+  let activeTurnId: string | undefined;
+  result.forEach((messageItem, index) => {
+    if (messageItem.role === 'user') {
+      activeTurnId = messageItem.turnId || messageItem.id;
+      result[index] = { ...messageItem, turnId: activeTurnId };
+      return;
+    }
+    if (messageItem.role === 'assistant' && activeTurnId && !messageItem.turnId) {
+      result[index] = { ...messageItem, turnId: activeTurnId };
+    }
   });
   let assistantIndexes: number[] = [];
   for (let index = result.length - 1; index >= 0; index -= 1) {
@@ -201,13 +212,12 @@ function traceLineAllowed(line: TraceLine, config: UIConfigRead): boolean {
 
 function traceSummary(trace: TurnTrace, lines: TraceLine[]): { text: string; state: TraceLine['state'] } {
   if (lines.some((line) => line.state === 'running')) {
-    return { text: '正在判断技能', state: 'running' };
+    return { text: '正在思考', state: 'running' };
   }
   if (lines.some((line) => line.state === 'failed')) {
-    return { text: '处理遇到问题', state: 'failed' };
+    return { text: '思考遇到问题', state: 'failed' };
   }
-  const elapsed = Math.max(1, Math.round(((trace.completedAt || Date.now()) - trace.startedAt) / 1000));
-  return { text: `已处理 ${elapsed}s`, state: 'completed' };
+  return { text: '已完成思考', state: 'completed' };
 }
 
 function traceDetails(lines: TraceLine[]): TraceLine[] {
@@ -232,7 +242,7 @@ export default function ChatWindowPage() {
   const [storeTick, setStoreTick] = useState(0);
   const [streamTick, setStreamTick] = useState(0);
   const [traceTick, setTraceTick] = useState(0);
-  const [expandedTraceId, setExpandedTraceId] = useState<string | null>(null);
+  const [expandedTraceIds, setExpandedTraceIds] = useState<string[]>([]);
   const [isComposing, setIsComposing] = useState(false);
   const [uiConfig, setUiConfig] = useState<UIConfigRead>({
     tenant_id: tenantId,
@@ -250,7 +260,11 @@ export default function ChatWindowPage() {
   const notifyStream = useCallback(() => setStreamTick((value) => value + 1), []);
   const notifyTrace = useCallback(() => setTraceTick((value) => value + 1), []);
   const toggleTrace = useCallback((turnId: string) => {
-    setExpandedTraceId((current) => (current === turnId ? null : turnId));
+    setExpandedTraceIds((current) => (
+      current.includes(turnId)
+        ? current.filter((item) => item !== turnId)
+        : [...current, turnId]
+    ));
   }, []);
 
   const getSlot = useCallback((id: string): SessionSlot => {
@@ -347,6 +361,28 @@ export default function ChatWindowPage() {
       .catch((error) => message.error(error.message));
   }, [getSlot, notifyStore, pruneRealtime, tenantId]);
 
+  const loadTraces = useCallback((id: string) => {
+    return api
+      .get<TurnTraceRead[]>(`/api/chat/sessions/${id}/trace?tenant_id=${tenantId}`)
+      .then((rows) => {
+        rows.forEach((row) => {
+          turnTraceRef.current.set(row.turn_id, {
+            lines: row.lines.map((line) => ({
+              id: line.id,
+              kind: line.kind,
+              text: line.text,
+              detail: line.detail || undefined,
+              state: line.state,
+            })),
+            startedAt: Date.parse(row.started_at) || Date.now(),
+            completedAt: row.completed_at ? Date.parse(row.completed_at) : undefined,
+          });
+        });
+        notifyTrace();
+      })
+      .catch((error) => message.error(error.message));
+  }, [notifyTrace, tenantId]);
+
   const appendRealtime = useCallback((id: string, messageItem: ChatMessage) => {
     const slot = getSlot(id);
     slot.realtimeMessages = [...slot.realtimeMessages, messageItem].slice(-200);
@@ -425,7 +461,8 @@ export default function ChatWindowPage() {
   useEffect(() => {
     if (!sessionId) return;
     loadMessages(sessionId);
-  }, [loadMessages, sessionId]);
+    loadTraces(sessionId);
+  }, [loadMessages, loadTraces, sessionId]);
 
   useEffect(() => {
     window.setTimeout(() => {
@@ -536,7 +573,7 @@ export default function ChatWindowPage() {
       content: userText,
       created_at: new Date().toISOString(),
     });
-    upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '正在判断技能', state: 'running' });
+    upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '正在思考', state: 'running' });
     updateStreaming(currentSessionId, '', turnId);
     stream.loading = true;
     stream.phase = '正在思考';
@@ -598,11 +635,11 @@ export default function ChatWindowPage() {
               state: 'running',
             });
           } else if (item.data.phase === 'responding') {
-            upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '正在生成回复', state: 'running' });
+            upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '正在思考', state: 'running' });
           } else if (item.data.phase === 'routing') {
-            upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '正在判断技能', state: 'running' });
+            upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '正在思考', state: 'running' });
           } else if (item.data.phase === 'reflecting') {
-            upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '正在反思', state: 'running' });
+            upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '正在思考', state: 'running' });
           } else {
             upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '正在思考', state: 'running' });
           }
@@ -651,7 +688,10 @@ export default function ChatWindowPage() {
           eventStream.abortController = null;
           notifyStream();
           loadSessions();
-          window.setTimeout(() => loadMessages(eventSessionId), 250);
+          window.setTimeout(() => {
+            loadMessages(eventSessionId);
+            loadTraces(eventSessionId);
+          }, 250);
         }
       }, controller.signal);
     } catch (error) {
@@ -773,7 +813,7 @@ export default function ChatWindowPage() {
               const visibleTrace = trace?.lines.filter((line) => traceLineAllowed(line, uiConfig)) || [];
               const summary = trace && visibleTrace.length > 0 ? traceSummary(trace, visibleTrace) : null;
               const details = traceDetails(visibleTrace);
-              const expanded = expandedTraceId === turnId;
+              const expanded = expandedTraceIds.includes(turnId);
               void traceTick;
               return (
                 <div key={item.id} className="message-item">

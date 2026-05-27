@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 
 from app.core import AgentLoop
 from app.db import engine, get_session
-from app.db.models import AgentEvent, ChatSession, Message, User, new_id, utc_now
+from app.db.models import AgentEvent, ChatSession, Message, Skill, User, new_id, utc_now
 from app.security.auth import get_current_user
 from app.security.tenant import ensure_tenant
 from app.session.session_schema import (
@@ -193,6 +193,30 @@ def list_chat_messages(
     return [message_read(row) for row in rows]
 
 
+@router.get("/sessions/{session_id}/trace")
+def list_chat_session_trace(
+    session_id: str,
+    tenant_id: str = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session),
+) -> list[dict]:
+    _ensure_request_tenant(tenant_id, current_user)
+    _get_user_chat_session(db, tenant_id, current_user.id, session_id)
+    messages = db.exec(
+        select(Message)
+        .where(Message.tenant_id == tenant_id, Message.session_id == session_id)
+        .order_by(Message.created_at)
+    ).all()
+    events = db.exec(
+        select(AgentEvent)
+        .where(AgentEvent.tenant_id == tenant_id, AgentEvent.session_id == session_id)
+        .order_by(AgentEvent.created_at)
+    ).all()
+    skills = db.exec(select(Skill).where(Skill.tenant_id == tenant_id)).all()
+    skill_names = {skill.skill_id: skill.name for skill in skills}
+    return _build_turn_traces(messages, events, skill_names)
+
+
 def _get_user_chat_session(db: Session, tenant_id: str, user_id: str, session_id: str) -> ChatSession:
     ensure_tenant(db, tenant_id)
     row = db.get(ChatSession, session_id)
@@ -220,3 +244,177 @@ def _normalize_title(value: str | None) -> str | None:
     if not title:
         raise HTTPException(status_code=400, detail="Session title cannot be empty")
     return title[:80]
+
+
+def _build_turn_traces(
+    messages: list[Message],
+    events: list[AgentEvent],
+    skill_names: dict[str, str],
+) -> list[dict]:
+    user_messages = [message for message in messages if message.role == "user"]
+    traces: list[dict] = []
+    current: dict | None = None
+    user_index = 0
+
+    for event in events:
+        if event.event_type == "user_message_received":
+            if current:
+                _finish_trace_if_needed(current, event.created_at)
+                traces.append(current)
+            user_message = _matching_user_message(user_messages, user_index, event.payload_json)
+            if user_message:
+                user_index = user_messages.index(user_message) + 1
+            current = {
+                "turn_id": user_message.id if user_message else event.id,
+                "user_message_id": user_message.id if user_message else None,
+                "started_at": event.created_at.isoformat(),
+                "completed_at": None,
+                "lines": [
+                    {
+                        "id": "thinking",
+                        "kind": "thinking",
+                        "text": "已完成思考",
+                        "state": "completed",
+                    }
+                ],
+            }
+            continue
+
+        if not current:
+            continue
+
+        line = _event_trace_line(event, skill_names)
+        if line:
+            _upsert_trace_line(current["lines"], line)
+        if event.event_type == "assistant_message_created":
+            current["completed_at"] = event.created_at.isoformat()
+            _complete_trace_lines(current["lines"])
+
+    if current:
+        _finish_trace_if_needed(current, events[-1].created_at if events else None)
+        traces.append(current)
+
+    return traces
+
+
+def _matching_user_message(
+    user_messages: list[Message],
+    start_index: int,
+    payload: dict,
+) -> Message | None:
+    text = str(payload.get("message") or "")
+    for index in range(start_index, len(user_messages)):
+        if user_messages[index].content == text:
+            return user_messages[index]
+    if start_index < len(user_messages):
+        return user_messages[start_index]
+    return None
+
+
+def _event_trace_line(event: AgentEvent, skill_names: dict[str, str]) -> dict | None:
+    payload = event.payload_json or {}
+    if event.event_type == "router_decision_created":
+        intent = str(payload.get("user_intent") or "").strip()
+        reason = str(payload.get("reason") or "").strip()
+        return {
+            "id": f"decision_{event.id}",
+            "kind": "decision",
+            "text": f"判断意图 {intent}" if intent else "完成技能判断",
+            "detail": reason or None,
+            "state": "completed",
+        }
+    if event.event_type in {"skill_started", "skill_suspended", "skill_resumed", "skill_step_changed"}:
+        to_skill_id = str(payload.get("to_skill_id") or "")
+        from_skill_id = str(payload.get("from_skill_id") or "")
+        skill_id = to_skill_id or from_skill_id
+        if not skill_id:
+            return None
+        label = {
+            "skill_started": "选择技能",
+            "skill_suspended": "切换技能",
+            "skill_resumed": "恢复技能",
+            "skill_step_changed": "推进技能",
+        }[event.event_type]
+        detail_parts = []
+        if from_skill_id and from_skill_id != to_skill_id:
+            detail_parts.append(f"from {skill_names.get(from_skill_id, from_skill_id)}")
+        if payload.get("to_step_id"):
+            detail_parts.append(f"step {payload['to_step_id']}")
+        return {
+            "id": f"skill_{event.id}",
+            "kind": "skill",
+            "text": f"{label} {skill_names.get(skill_id, skill_id)}",
+            "detail": " · ".join(detail_parts) or None,
+            "state": "completed",
+        }
+    if event.event_type == "skill_completed":
+        skill_id = str(payload.get("skill_id") or "")
+        return {
+            "id": f"skill_{event.id}",
+            "kind": "skill",
+            "text": f"完成技能 {skill_names.get(skill_id, skill_id)}" if skill_id else "完成技能",
+            "detail": str(payload.get("reason") or "") or None,
+            "state": "completed",
+        }
+    if event.event_type == "tool_call_started":
+        name = str(payload.get("name") or "")
+        if not name:
+            return None
+        return {
+            "id": f"tool_{name}",
+            "kind": "tool",
+            "text": f"调用工具 {name}",
+            "detail": None,
+            "state": "running",
+        }
+    if event.event_type == "tool_call_finished":
+        name = str(payload.get("tool_name") or "")
+        success = bool(payload.get("success"))
+        return {
+            "id": f"tool_{name or event.id}",
+            "kind": "tool",
+            "text": f"{'调用工具' if success else '工具调用失败'} {name}",
+            "detail": None,
+            "state": "completed" if success else "failed",
+        }
+    if event.event_type == "reflection_decision_created" and payload.get("needs_retry"):
+        return {
+            "id": f"decision_{event.id}",
+            "kind": "decision",
+            "text": "反思后重试",
+            "detail": str(payload.get("reason") or "") or None,
+            "state": "completed",
+        }
+    if event.event_type == "error_occurred":
+        return {
+            "id": f"error_{event.id}",
+            "kind": "thinking",
+            "text": "思考遇到问题",
+            "detail": str(payload.get("message") or "") or None,
+            "state": "failed",
+        }
+    return None
+
+
+def _upsert_trace_line(lines: list[dict], line: dict) -> None:
+    for index, item in enumerate(lines):
+        if item.get("id") == line.get("id"):
+            lines[index] = line
+            return
+    lines.append(line)
+
+
+def _complete_trace_lines(lines: list[dict]) -> None:
+    for line in lines:
+        if line.get("state") == "running":
+            line["state"] = "completed"
+    thinking = next((line for line in lines if line.get("id") == "thinking"), None)
+    if thinking:
+        thinking["text"] = "已完成思考"
+        thinking["state"] = "completed"
+
+
+def _finish_trace_if_needed(trace: dict, fallback_time) -> None:
+    if not trace.get("completed_at") and fallback_time:
+        trace["completed_at"] = fallback_time.isoformat()
+    _complete_trace_lines(trace["lines"])

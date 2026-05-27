@@ -30,6 +30,22 @@ export type ChatTurnResponse = {
   session_state: Record<string, unknown>;
 };
 
+export type TraceLineRead = {
+  id: string;
+  kind: 'thinking' | 'decision' | 'skill' | 'tool';
+  text: string;
+  detail?: string | null;
+  state: 'running' | 'completed' | 'failed';
+};
+
+export type TurnTraceRead = {
+  turn_id: string;
+  user_message_id?: string | null;
+  started_at: string;
+  completed_at?: string | null;
+  lines: TraceLineRead[];
+};
+
 export type UIConfigRead = {
   tenant_id: string;
   show_thinking_trace: boolean;
