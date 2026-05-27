@@ -15,7 +15,7 @@ import {
 } from '@ant-design/icons';
 import { Button, Empty, Input, Modal, Typography, message } from 'antd';
 import type { MouseEvent } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { SHOW_DEBUG, TENANT_ID, api, clearAuthSession, getAuthSession, streamChatTurn } from '../api/client';
 import type { ChatMessage, ChatSession, ChatTurnResponse, TurnTraceRead, UIConfigRead } from '../types';
@@ -226,7 +226,7 @@ export default function ChatWindowPage() {
     show_tool_trace: true,
     updated_at: '',
   });
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const chatMessagesRef = useRef<HTMLDivElement>(null);
   const storeRef = useRef(new Map<string, SessionSlot>());
   const streamRef = useRef(new Map<string, StreamSlot>());
   const turnTraceRef = useRef(new Map<string, TurnTrace>());
@@ -234,6 +234,16 @@ export default function ChatWindowPage() {
   const notifyStore = useCallback(() => setStoreTick((value) => value + 1), []);
   const notifyStream = useCallback(() => setStreamTick((value) => value + 1), []);
   const notifyTrace = useCallback(() => setTraceTick((value) => value + 1), []);
+  const scrollChatToBottom = useCallback(() => {
+    const element = chatMessagesRef.current;
+    if (!element) return;
+    window.requestAnimationFrame(() => {
+      element.scrollTop = element.scrollHeight;
+      window.requestAnimationFrame(() => {
+        element.scrollTop = element.scrollHeight;
+      });
+    });
+  }, []);
   const toggleTrace = useCallback((turnId: string) => {
     setExpandedTraceIds((current) => (
       current.includes(turnId)
@@ -439,16 +449,14 @@ export default function ChatWindowPage() {
     loadTraces(sessionId);
   }, [loadMessages, loadTraces, sessionId]);
 
-  useEffect(() => {
-    window.setTimeout(() => {
-      bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
-    }, 0);
-  }, [sessionId, displayedMessages.length]);
+  useLayoutEffect(() => {
+    scrollChatToBottom();
+  }, [displayedMessages.length, scrollChatToBottom, sessionId, storeTick, traceTick]);
 
   useEffect(() => {
     if (!currentStream.loading) return;
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [currentStream.loading, currentStream.phase, traceTick]);
+    scrollChatToBottom();
+  }, [currentStream.loading, currentStream.phase, scrollChatToBottom, storeTick, streamTick, traceTick]);
 
   useEffect(() => {
     return () => {
@@ -779,7 +787,7 @@ export default function ChatWindowPage() {
             <div className="header-subtitle">{sessionId}</div>
           </div>
         </div>
-        <div className="chat-messages">
+        <div className="chat-messages" ref={chatMessagesRef}>
           {displayedMessages.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无消息" />}
           <div className="message-stack">
             {displayedMessages.map((item) => {
@@ -838,7 +846,6 @@ export default function ChatWindowPage() {
             })}
           </div>
           {SHOW_DEBUG && lastTurn && <pre className="debug-panel">{JSON.stringify(lastTurn.session_state, null, 2)}</pre>}
-          <div ref={bottomRef} />
         </div>
         <div className="chat-input">
           <form
