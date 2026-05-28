@@ -165,6 +165,53 @@ def test_zero_reflection_rounds_skips_reflection_agent() -> None:
     assert loop.events.records[-1][3]["skip_reason"] == "reflection_disabled"
 
 
+def test_clarify_greeting_does_not_trigger_reflection() -> None:
+    loop = object.__new__(AgentLoop)
+    loop.reflection_agent = _RaisingReflectionAgent()
+    session = ChatSession(id="session_test", tenant_id="tenant_demo")
+    decision = RouterDecision(decision="clarify", user_intent="greeting")
+    step_result = StepAgentResult(reply="您好，请问有什么可以帮您？")
+
+    returned = loop._run_reflection_rounds(
+        ChatTurnRequest(tenant_id="tenant_demo", message="你好"),
+        session,
+        [],
+        [],
+        ModelConfig(tenant_id="tenant_demo", name="demo", api_key_encrypted="", model="demo"),
+        None,
+        decision,
+        step_result,
+        None,
+        1,
+    )
+
+    assert returned == (None, decision, step_result, None)
+
+
+def test_successful_expected_tool_result_does_not_trigger_reflection() -> None:
+    loop = object.__new__(AgentLoop)
+    loop.reflection_agent = _RaisingReflectionAgent()
+    session = ChatSession(id="session_test", tenant_id="tenant_demo")
+    decision = RouterDecision(decision="continue_current_skill", user_intent="查询订单")
+    step_result = StepAgentResult(is_step_completed=True)
+    tool_result = ToolResult(tool_name="order.query", success=True, data={"found": True})
+
+    returned = loop._run_reflection_rounds(
+        ChatTurnRequest(tenant_id="tenant_demo", message="查订单"),
+        session,
+        [],
+        [],
+        ModelConfig(tenant_id="tenant_demo", name="demo", api_key_encrypted="", model="demo"),
+        None,
+        decision,
+        step_result,
+        tool_result,
+        1,
+    )
+
+    assert returned == (None, decision, step_result, tool_result)
+
+
 class _FakeDb:
     def commit(self) -> None:
         pass

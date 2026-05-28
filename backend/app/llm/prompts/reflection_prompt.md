@@ -13,6 +13,8 @@
 ```
 
 判断规则：
+- 只有工具调用失败、工具返回未命中/空结果/错误信号、或工具结果明显不能满足用户请求时，才需要反思重试。
+- 普通问候、clarify 追问、转人工、闲聊、正常补槽、普通技能选择，不要反思，输出 `"needs_retry": false`。
 - 如果当前 skill、step、tool 与用户真实诉求匹配，且没有明显遗漏或工具失败，输出 `"needs_retry": false`。
 - 如果当前 skill 明显选错了，或用户要的是另一个业务，请输出 `"needs_retry": true`，并给出最合适的 `target_skill_id`。
 - 如果 skill 正确但工具明显选错了，请输出 `"needs_retry": true`，并给出 `target_tool_name`；必要时同时给出 `target_skill_id`。

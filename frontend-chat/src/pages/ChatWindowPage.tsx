@@ -763,20 +763,36 @@ export default function ChatWindowPage() {
         }
         if (item.event === 'status') {
           const eventStream = getStreamSlot(eventSessionId);
+          const phase = typeof item.data.phase === 'string' ? item.data.phase : 'thinking';
           eventStream.phase = publicStreamPhase(item.data);
-          if (item.data.phase === 'tool' && typeof item.data.tool_name === 'string') {
+          if (phase === 'tool' && typeof item.data.tool_name === 'string') {
             upsertTraceLine(turnId, {
               id: `tool_${item.data.tool_name}`,
               kind: 'tool',
               text: `正在调用工具 ${item.data.tool_name}`,
               state: 'running',
             });
-          } else if (item.data.phase === 'responding') {
-            upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '正在思考', state: 'running' });
-          } else if (item.data.phase === 'routing') {
+          } else if (phase === 'routing') {
             upsertTraceLine(turnId, { id: 'decision_router', kind: 'decision', text: '判断意图', state: 'running' });
-          } else if (item.data.phase === 'reflecting') {
+          } else if (phase === 'stepping') {
+            const repairReason = typeof item.data.repair_reason === 'string' ? item.data.repair_reason : 'main';
+            upsertTraceLine(turnId, {
+              id: `decision_stepping_${repairReason}`,
+              kind: 'decision',
+              text: repairReason === 'main' ? '分析执行动作' : '重新分析执行动作',
+              state: 'running',
+            });
+          } else if (phase === 'reflecting') {
             upsertTraceLine(turnId, { id: 'reflection', kind: 'decision', text: '正在反思', state: 'running' });
+          } else if (phase === 'responding') {
+            upsertTraceLine(turnId, { id: 'decision_responding', kind: 'decision', text: '组织回复', state: 'running' });
+          } else if (phase !== 'received') {
+            upsertTraceLine(turnId, {
+              id: `decision_status_${phase}`,
+              kind: 'decision',
+              text: eventStream.phase,
+              state: 'running',
+            });
           } else {
             upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '正在思考', state: 'running' });
           }

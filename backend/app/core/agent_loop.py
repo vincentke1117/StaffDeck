@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
-from app.core.reflection_agent import ReflectionAgent, ReflectionDecision
+from app.core.reflection_agent import ReflectionAgent, ReflectionDecision, tool_result_needs_reflection
 from app.core.response_generator import FALLBACK_REPLY, ResponseGenerator
 from app.core.router import Router
 from app.core.skill_runtime import SkillRuntime
@@ -1331,11 +1331,7 @@ class AgentLoop:
         step_result: StepAgentResult,
         tool_result: ToolResult | None,
     ) -> bool:
-        if router_decision.decision in {"handoff_human", "clarify"}:
-            return True
-        if tool_result is not None:
-            return True
-        return step_result.is_step_completed
+        return tool_result_needs_reflection(tool_result)
 
     def _first_step_id(self, skill: Skill) -> str | None:
         steps = self._skill_steps(skill)

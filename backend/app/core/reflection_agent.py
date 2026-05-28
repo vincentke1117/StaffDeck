@@ -90,8 +90,32 @@ def _should_reflect(
     step_result: StepAgentResult,
     tool_result: ToolResult | None,
 ) -> bool:
-    if router_decision.decision in {"handoff_human", "clarify"}:
+    return tool_result_needs_reflection(tool_result)
+
+
+def tool_result_needs_reflection(tool_result: ToolResult | None) -> bool:
+    if tool_result is None:
+        return False
+    if not tool_result.success:
         return True
-    if tool_result is not None:
+    return _data_indicates_unexpected_result(tool_result.data)
+
+
+def _data_indicates_unexpected_result(value: object) -> bool:
+    if value is None:
         return True
-    return step_result.is_step_completed
+    if isinstance(value, list):
+        return len(value) == 0
+    if not isinstance(value, dict):
+        return False
+
+    if value.get("found") is False or value.get("success") is False:
+        return True
+    for key in ("miss_reason", "not_found", "empty", "error", "error_code"):
+        if value.get(key):
+            return True
+    for key in ("results", "items", "data"):
+        nested = value.get(key)
+        if isinstance(nested, list) and len(nested) == 0:
+            return True
+    return False
