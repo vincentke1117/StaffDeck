@@ -169,6 +169,72 @@ def test_answer_step_can_complete_even_if_distilled_order_has_later_satisfied_co
     )
 
 
+def test_context_repair_skips_satisfied_collect_step_and_uses_schema_tool() -> None:
+    loop = object.__new__(AgentLoop)
+    loop.events = FakeEvents()
+    loop.step_agent = _FakeStepAgent(
+        [
+            StepAgentResult(
+                reply="您好 hm，请问您想购买的商品 ID 是什么？",
+                slot_updates={"user_name": "hm"},
+                next_step_id="collect_user_name",
+            ),
+            StepAgentResult(reply="正在为您创建订单，请稍候。"),
+        ]
+    )
+    session = ChatSession(
+        id="session_test",
+        tenant_id="tenant_demo",
+        active_skill_id="purchase",
+        active_step_id="collect_user_name",
+        slots_json={"product_id": "A3", "quantity": 1},
+    )
+
+    step_result = loop._run_step_agent_with_context_repair(
+        _request("我叫hm"),
+        session,
+        _purchase_skill(),
+        [_purchase_tool(), _order_add_tool()],
+        _model_config(),
+    )
+
+    assert session.active_step_id == "confirm_product"
+    assert loop.step_agent.calls == 2
+    assert step_result.tool_call is not None
+    assert step_result.tool_call.name == "product.purchase"
+    assert step_result.tool_call.arguments["product_id"] == "A3"
+    assert step_result.tool_call.arguments["quantity"] == 1
+    assert any(
+        event_type == "skill_step_changed"
+        and payload.get("reason") == "expected_info_satisfied"
+        for _, _, event_type, payload in loop.events.records
+    )
+    assert any(
+        event_type == "step_agent_result_repaired"
+        and payload.get("mode") == "schema_tool_call"
+        for _, _, event_type, payload in loop.events.records
+    )
+
+
+def test_context_repair_does_not_skip_satisfied_tool_step() -> None:
+    loop = object.__new__(AgentLoop)
+    loop.events = FakeEvents()
+    session = ChatSession(
+        id="session_test",
+        tenant_id="tenant_demo",
+        active_skill_id="refund",
+        active_step_id="collect_order",
+        slots_json={"order_id": "A12345"},
+    )
+
+    advanced = loop._advance_past_satisfied_collection_steps(
+        "tenant_demo", session, _refund_skill_with_tool_collect_step()
+    )
+
+    assert not advanced
+    assert session.active_step_id == "collect_order"
+
+
 def _repair_skill() -> Skill:
     return Skill(
         tenant_id="tenant_demo",
@@ -283,4 +349,125 @@ def _refund_tool_call():
     return ToolCall(
         name="order.query",
         arguments={"order_id": "A12345", "refund_reason": "商品质量"},
+    )
+
+
+class _FakeStepAgent:
+    def __init__(self, results: list[StepAgentResult]) -> None:
+        self.results = results
+        self.calls = 0
+
+    def run(self, *args: object, **kwargs: object) -> StepAgentResult:
+        result = self.results[min(self.calls, len(self.results) - 1)]
+        self.calls += 1
+        return result
+
+
+def _request(message: str):
+    from app.session.session_schema import ChatTurnRequest
+
+    return ChatTurnRequest(tenant_id="tenant_demo", session_id="session_test", message=message)
+
+
+def _model_config():
+    from app.db.models import ModelConfig
+
+    return ModelConfig(tenant_id="tenant_demo", name="demo", api_key_encrypted="", model="demo")
+
+
+def _purchase_skill() -> Skill:
+    return Skill(
+        tenant_id="tenant_demo",
+        skill_id="purchase",
+        name="购买商品",
+        content_json={
+            "skill_id": "purchase",
+            "name": "购买商品",
+            "required_info": ["user_name", "product_id", "quantity"],
+            "steps": [
+                {
+                    "step_id": "collect_user_name",
+                    "name": "收集用户与商品",
+                    "expected_user_info": ["user_name", "product_id", "quantity"],
+                    "allowed_actions": ["ask_user"],
+                },
+                {
+                    "step_id": "confirm_product",
+                    "name": "创建订单",
+                    "expected_user_info": ["product_id"],
+                    "allowed_actions": ["call_tool:product.purchase", "call_tool:order.add"],
+                },
+                {
+                    "step_id": "reply_result",
+                    "name": "反馈订单",
+                    "expected_user_info": [],
+                    "allowed_actions": ["reply"],
+                },
+            ],
+        },
+        status="published",
+    )
+
+
+def _purchase_tool() -> Tool:
+    return Tool(
+        tenant_id="tenant_demo",
+        name="product.purchase",
+        display_name="购买商品",
+        method="POST",
+        url="http://localhost:8000/api/mock/product/purchase",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "product_id": {"type": "string"},
+                "quantity": {"type": "integer"},
+                "user_id": {"type": "string"},
+            },
+            "required": ["product_id"],
+        },
+        enabled=True,
+    )
+
+
+def _order_add_tool() -> Tool:
+    return Tool(
+        tenant_id="tenant_demo",
+        name="order.add",
+        display_name="订单添加",
+        method="POST",
+        url="http://localhost:8000/api/mock/order/add",
+        input_schema={
+            "type": "object",
+            "properties": {"product_id": {"type": "string"}},
+            "required": ["product_id"],
+        },
+        enabled=True,
+    )
+
+
+def _refund_skill_with_tool_collect_step() -> Skill:
+    return Skill(
+        tenant_id="tenant_demo",
+        skill_id="refund",
+        name="退款",
+        content_json={
+            "skill_id": "refund",
+            "name": "退款",
+            "required_info": ["order_id"],
+            "steps": [
+                {
+                    "step_id": "collect_order",
+                    "name": "收集订单",
+                    "expected_user_info": ["order_id"],
+                    "allowed_actions": ["ask_user", "call_tool:order.query"],
+                },
+                {
+                    "step_id": "reply_result",
+                    "name": "反馈结果",
+                    "expected_user_info": [],
+                    "allowed_actions": ["reply"],
+                },
+            ],
+        },
+        status="published",
     )

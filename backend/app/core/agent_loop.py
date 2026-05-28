@@ -193,36 +193,19 @@ class AgentLoop:
                 "正在思考",
                 {"active_skill_id": chat_session.active_skill_id, "active_step_id": chat_session.active_step_id},
             )
-            step_result = self.step_agent.run(request.message, chat_session, active_skill, tools, model_config)
-            self.events.record(
-                request.tenant_id,
-                chat_session.id,
-                "step_agent_result_created",
-                step_result.model_dump(),
+            repair_stream_events: list[tuple[str, dict[str, object]]] = []
+            step_result = self._run_step_agent_with_context_repair(
+                request,
+                chat_session,
+                active_skill,
+                tools,
+                model_config,
+                repair_stream_events,
             )
-
-            if step_result.slot_updates:
-                chat_session.slots_json = {**(chat_session.slots_json or {}), **step_result.slot_updates}
-                self.events.record(
-                    request.tenant_id,
-                    chat_session.id,
-                    "slot_updated",
-                    {"slot_updates": step_result.slot_updates, "slots": chat_session.slots_json},
-                )
-
-            if step_result.next_step_id:
-                previous_step = chat_session.active_step_id
-                chat_session.active_step_id = step_result.next_step_id
-                if previous_step != step_result.next_step_id:
-                    self.events.record(
-                        request.tenant_id,
-                        chat_session.id,
-                        "skill_step_changed",
-                        {"from_step_id": previous_step, "to_step_id": step_result.next_step_id},
-                    )
-
             self.db.commit()
             self.db.refresh(chat_session)
+            for event_name, payload in repair_stream_events:
+                yield self._stream_event(event_name, chat_session, payload)
 
             if step_result.tool_call:
                 yield self._stream_status(
@@ -465,33 +448,9 @@ class AgentLoop:
             "stepping",
             {"active_skill_id": chat_session.active_skill_id, "active_step_id": chat_session.active_step_id},
         )
-        step_result = self.step_agent.run(request.message, chat_session, active_skill, tools, model_config)
-        self.events.record(
-            request.tenant_id,
-            chat_session.id,
-            "step_agent_result_created",
-            step_result.model_dump(),
+        step_result = self._run_step_agent_with_context_repair(
+            request, chat_session, active_skill, tools, model_config
         )
-
-        if step_result.slot_updates:
-            chat_session.slots_json = {**(chat_session.slots_json or {}), **step_result.slot_updates}
-            self.events.record(
-                request.tenant_id,
-                chat_session.id,
-                "slot_updated",
-                {"slot_updates": step_result.slot_updates, "slots": chat_session.slots_json},
-            )
-
-        if step_result.next_step_id:
-            previous_step = chat_session.active_step_id
-            chat_session.active_step_id = step_result.next_step_id
-            if previous_step != step_result.next_step_id:
-                self.events.record(
-                    request.tenant_id,
-                    chat_session.id,
-                    "skill_step_changed",
-                    {"from_step_id": previous_step, "to_step_id": step_result.next_step_id},
-                )
 
         tool_result: ToolResult | None = None
         self.db.commit()
@@ -828,14 +787,14 @@ class AgentLoop:
                 )
             )
 
-        step_result = self.step_agent.run(request.message, chat_session, active_skill, tools, model_config)
-        self.events.record(
-            request.tenant_id,
-            chat_session.id,
-            "step_agent_result_created",
-            step_result.model_dump(),
+        step_result = self._run_step_agent_with_context_repair(
+            request,
+            chat_session,
+            active_skill,
+            tools,
+            model_config,
+            stream_events,
         )
-        self._apply_step_result(request.tenant_id, chat_session, step_result)
         self.db.commit()
         self.db.refresh(chat_session)
 
@@ -869,6 +828,90 @@ class AgentLoop:
                 )
         return active_skill, router_decision, step_result, tool_result
 
+    def _run_step_agent_with_context_repair(
+        self,
+        request: ChatTurnRequest,
+        chat_session: ChatSession,
+        active_skill: Skill | None,
+        tools: list[Tool],
+        model_config: ModelConfig,
+        stream_events: list[tuple[str, dict[str, object]]] | None = None,
+    ) -> StepAgentResult:
+        step_result = self._run_step_agent_once(
+            request, chat_session, active_skill, tools, model_config
+        )
+        self._apply_step_result(request.tenant_id, chat_session, step_result)
+
+        advanced = self._advance_past_satisfied_collection_steps(
+            request.tenant_id, chat_session, active_skill
+        )
+        if advanced and not step_result.tool_call and not step_result.handoff:
+            if stream_events is not None:
+                stream_events.append(
+                    (
+                        "status",
+                        {
+                            "phase": "stepping",
+                            "text": "正在思考",
+                            "active_skill_id": chat_session.active_skill_id,
+                            "active_step_id": chat_session.active_step_id,
+                            "repair_reason": "satisfied_step_advanced",
+                        },
+                    )
+                )
+            step_result = self._run_step_agent_once(
+                request,
+                chat_session,
+                active_skill,
+                tools,
+                model_config,
+                "satisfied_step_advanced",
+            )
+            self._apply_step_result(request.tenant_id, chat_session, step_result)
+            self._advance_past_satisfied_collection_steps(
+                request.tenant_id, chat_session, active_skill
+            )
+
+        if not step_result.tool_call and not step_result.handoff:
+            inferred_tool_call = self._tool_call_from_active_step(chat_session, active_skill, tools)
+            if inferred_tool_call:
+                step_result.tool_call = inferred_tool_call
+                step_result.is_step_completed = True
+                self.events.record(
+                    request.tenant_id,
+                    chat_session.id,
+                    "step_agent_result_repaired",
+                    {
+                        "mode": "schema_tool_call",
+                        "active_skill_id": chat_session.active_skill_id,
+                        "active_step_id": chat_session.active_step_id,
+                        "tool_call": inferred_tool_call.model_dump(),
+                    },
+                )
+
+        return step_result
+
+    def _run_step_agent_once(
+        self,
+        request: ChatTurnRequest,
+        chat_session: ChatSession,
+        active_skill: Skill | None,
+        tools: list[Tool],
+        model_config: ModelConfig,
+        repair_reason: str | None = None,
+    ) -> StepAgentResult:
+        step_result = self.step_agent.run(request.message, chat_session, active_skill, tools, model_config)
+        payload = step_result.model_dump()
+        if repair_reason:
+            payload["repair_reason"] = repair_reason
+        self.events.record(
+            request.tenant_id,
+            chat_session.id,
+            "step_agent_result_created",
+            payload,
+        )
+        return step_result
+
     def _apply_step_result(
         self, tenant_id: str, chat_session: ChatSession, step_result: StepAgentResult
     ) -> None:
@@ -891,6 +934,87 @@ class AgentLoop:
                     "skill_step_changed",
                     {"from_step_id": previous_step, "to_step_id": step_result.next_step_id},
                 )
+
+    def _advance_past_satisfied_collection_steps(
+        self, tenant_id: str, chat_session: ChatSession, skill: Skill | None
+    ) -> bool:
+        if not skill or not chat_session.active_step_id:
+            return False
+        steps = self._skill_steps(skill)
+        step_index = next(
+            (
+                index
+                for index, step in enumerate(steps)
+                if step.get("step_id") == chat_session.active_step_id
+            ),
+            -1,
+        )
+        if step_index < 0:
+            return False
+
+        changed = False
+        slots = chat_session.slots_json or {}
+        while step_index < len(steps) - 1:
+            current = steps[step_index]
+            expected = [str(field) for field in current.get("expected_user_info", [])]
+            if any(not self._skill_slot_satisfied(slots, field) for field in expected):
+                break
+            actions = [str(action) for action in current.get("allowed_actions", [])]
+            if self._step_can_act_without_more_user_input(actions):
+                break
+            next_step = steps[step_index + 1]
+            next_step_id = str(next_step.get("step_id") or "")
+            if not next_step_id:
+                break
+            previous_step = chat_session.active_step_id
+            chat_session.active_step_id = next_step_id
+            changed = True
+            self.events.record(
+                tenant_id,
+                chat_session.id,
+                "skill_step_changed",
+                {
+                    "from_step_id": previous_step,
+                    "to_step_id": next_step_id,
+                    "reason": "expected_info_satisfied",
+                },
+            )
+            step_index += 1
+        return changed
+
+    def _step_can_act_without_more_user_input(self, actions: list[str]) -> bool:
+        return (
+            self._actions_allow_final_reply(actions)
+            or "handoff_human" in actions
+            or any(action.startswith("call_tool:") for action in actions)
+        )
+
+    def _tool_call_from_active_step(
+        self, chat_session: ChatSession, active_skill: Skill | None, tools: list[Tool]
+    ) -> ToolCall | None:
+        if not active_skill:
+            return None
+        step = self._current_skill_step(active_skill, chat_session.active_step_id)
+        if not step:
+            return None
+        tools_by_name = {tool.name: tool for tool in tools if tool.enabled}
+        for action in [str(item) for item in step.get("allowed_actions", [])]:
+            if not action.startswith("call_tool:"):
+                continue
+            tool_name = action.split(":", 1)[1].strip()
+            tool = tools_by_name.get(tool_name)
+            if not tool:
+                continue
+            if (
+                tool.allowed_skills_json
+                and active_skill.skill_id not in tool.allowed_skills_json
+            ):
+                continue
+            arguments = self._build_tool_arguments_from_slots(tool, chat_session.slots_json or {})
+            required = [str(field) for field in (tool.input_schema or {}).get("required", [])]
+            if all(self._slot_has_value(arguments, field) for field in required):
+                return ToolCall(name=tool.name, arguments=arguments)
+        return None
 
     def _execute_tool_call(
         self, request: ChatTurnRequest, chat_session: ChatSession, tool_call: ToolCall
@@ -1053,9 +1177,12 @@ class AgentLoop:
         return step_result.is_step_completed
 
     def _first_step_id(self, skill: Skill) -> str | None:
-        steps = skill.content_json.get("steps", []) if skill.content_json else []
+        steps = self._skill_steps(skill)
         first_step = steps[0] if steps and isinstance(steps[0], dict) else None
         return first_step.get("step_id") if first_step else None
+
+    def _skill_steps(self, skill: Skill) -> list[dict[str, Any]]:
+        return [step for step in (skill.content_json or {}).get("steps", []) if isinstance(step, dict)]
 
     def _get_or_create_session(self, request: ChatTurnRequest) -> ChatSession:
         session_id = request.session_id or new_id("session")
