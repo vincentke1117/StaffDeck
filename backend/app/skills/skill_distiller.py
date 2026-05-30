@@ -9,6 +9,7 @@ from typing import Any
 from app.db.models import ModelConfig
 from app.llm import LLMClient, LLMError
 from app.skills.skill_schema import SkillDistillRequest, SkillDistillResponse, SkillCard, SkillStep
+from app.skills.step_ids import ensure_unique_step_ids, skill_card_with_unique_step_ids
 
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "llm" / "prompts" / "skill_distiller_prompt.md"
@@ -109,6 +110,8 @@ class SkillDistiller:
         steps = self._normalize_steps(draft.get("steps"), fallback.steps)
         steps, step_warnings = self._ensure_closed_loop_steps(steps, request)
         warnings.extend(step_warnings)
+        steps, unique_step_warnings = ensure_unique_step_ids(steps)
+        warnings.extend(unique_step_warnings)
         response_rules = _string_list(draft.get("response_rules"), fallback.response_rules)
         if CLOSED_LOOP_RESPONSE_RULE not in response_rules:
             response_rules.append(CLOSED_LOOP_RESPONSE_RULE)
@@ -138,7 +141,9 @@ class SkillDistiller:
             "interruption_policy": _string_dict(draft.get("interruption_policy"), fallback.interruption_policy),
             "response_rules": response_rules,
         }
-        response = SkillDistillResponse(draft_skill=SkillCard.model_validate(normalized), warnings=warnings)
+        draft_skill, card_warnings = skill_card_with_unique_step_ids(SkillCard.model_validate(normalized))
+        warnings.extend(card_warnings)
+        response = SkillDistillResponse(draft_skill=draft_skill, warnings=_unique_warnings(warnings))
         if not response.draft_skill.steps:
             response.draft_skill.steps = fallback.steps
             response.warnings.append("模型未生成步骤，已使用规则生成默认步骤。")
@@ -416,6 +421,15 @@ def _unique_step_id(steps: list[dict[str, Any]], base: str) -> str:
     while f"{base}_{index}" in existing:
         index += 1
     return f"{base}_{index}"
+
+
+def _unique_warnings(warnings: list[str]) -> list[str]:
+    deduped: list[str] = []
+    for warning in warnings:
+        text = str(warning).strip()
+        if text and text not in deduped:
+            deduped.append(text)
+    return deduped
 
 
 def _needs_confirmation(raw: str) -> bool:

@@ -100,6 +100,45 @@ def test_normalize_response_adds_closed_loop_tool_and_final_reply_steps() -> Non
     assert all("目标而不是固定话术" in step.instruction for step in steps)
 
 
+def test_normalize_response_makes_duplicate_step_ids_unique() -> None:
+    request = SkillDistillRequest(
+        tenant_id="tenant_demo",
+        title="购买商品",
+        raw_content="获取用户姓名，生成订单号，反馈给用户",
+    )
+    raw = {
+        "draft_skill": {
+            "skill_id": "purchase",
+            "name": "购买商品",
+            "required_info": ["user_name"],
+            "steps": [
+                {
+                    "step_id": "reply_result",
+                    "name": "创建订单",
+                    "instruction": "创建订单。",
+                    "expected_user_info": ["user_name"],
+                    "allowed_actions": ["continue_flow"],
+                },
+                {
+                    "step_id": "reply_result",
+                    "name": "反馈订单",
+                    "instruction": "反馈订单结果。",
+                    "expected_user_info": [],
+                    "allowed_actions": ["answer_user"],
+                },
+            ],
+        }
+    }
+
+    response = SkillDistiller()._normalize_response(raw, request)  # noqa: SLF001
+    step_ids = [step.step_id for step in response.draft_skill.steps]
+
+    assert len(step_ids) == len(set(step_ids))
+    assert "reply_result" in step_ids
+    assert "reply_result_2" in step_ids
+    assert any("step_id" in warning for warning in response.warnings)
+
+
 def test_normalize_response_turns_steps_into_adaptive_goals() -> None:
     request = SkillDistillRequest(
         tenant_id="tenant_demo",

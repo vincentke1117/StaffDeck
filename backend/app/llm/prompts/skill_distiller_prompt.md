@@ -19,6 +19,7 @@
 
 输出 JSON，不要输出 Markdown、解释、注释或代码围栏。
 steps 中每个步骤必须包含 step_id、name、instruction、expected_user_info、allowed_actions。
+steps 中每个 step_id 必须全局唯一，不得重复；如果两个步骤语义相近，也必须使用不同 step_id。
 如果原始流程需要工具，请优先从 available_tools 中选择工具，并在 allowed_actions 中使用 call_tool:<tool_name>。
 required_info 和 expected_user_info 应使用稳定的 snake_case 字段名；如果要调用工具，字段名应尽量与工具 input_schema 参数一致。
 所有 instruction 都必须写成“目标导向、可自适应推进”的说明，不要写成固定话术脚本。模型执行时可以根据用户当前消息、历史 slots、路由意图和工具参数满足情况跳过已满足步骤。

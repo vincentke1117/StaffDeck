@@ -9,6 +9,7 @@ from typing import Any, Iterator
 from app.db.models import ModelConfig
 from app.llm import LLMClient, LLMError
 from app.skills.skill_schema import SkillCard, SkillRewriteRequest, SkillRewriteResponse
+from app.skills.step_ids import skill_card_with_unique_step_ids
 
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "llm" / "prompts" / "skill_editor_prompt.md"
@@ -72,11 +73,12 @@ class SkillEditor:
         self, raw: dict[str, Any], request: SkillRewriteRequest
     ) -> SkillRewriteResponse:
         draft = raw.get("draft_skill") if isinstance(raw.get("draft_skill"), dict) else raw
-        candidate = SkillCard.model_validate(draft)
+        candidate, id_warnings = skill_card_with_unique_step_ids(SkillCard.model_validate(draft))
         target_paths = _target_paths(request)
         merged = _merge_targets(request.current_skill, candidate, target_paths)
         assistant_message = str(raw.get("assistant_message") or "已完成选中部分的改写。").strip()
         warnings = [str(item) for item in raw.get("warnings", []) if str(item).strip()]
+        warnings.extend(warning for warning in id_warnings if warning not in warnings)
         changed_paths = [str(item) for item in raw.get("changed_paths", []) if str(item).strip()]
         if not changed_paths and merged.model_dump() != request.current_skill.model_dump():
             changed_paths = target_paths
@@ -127,7 +129,12 @@ def _merge_target(current: SkillCard, candidate: SkillCard, target_path: str) ->
     if target_index is not None:
         candidate_steps = [step for step in candidate_data.get("steps", []) if isinstance(step, dict)]
         current_steps = [step for step in current_data.get("steps", []) if isinstance(step, dict)]
-        replacement = _replacement_step(candidate_steps, current_steps[target_index], target_index)
+        replacement = _replacement_step(
+            candidate_steps,
+            current_steps[target_index],
+            target_index,
+            prefer_index=normalized_path.startswith("steps["),
+        )
         if isinstance(replacement, dict):
             next_step = dict(current_steps[target_index])
             for field in STEP_FIELDS:
@@ -159,7 +166,10 @@ def _replacement_step(
     candidate_steps: list[dict[str, Any]],
     current_step: dict[str, Any],
     target_index: int,
+    prefer_index: bool = False,
 ) -> dict[str, Any] | None:
+    if prefer_index and target_index < len(candidate_steps):
+        return candidate_steps[target_index]
     step_id = str(current_step.get("step_id") or "")
     if step_id:
         matching_steps = [step for step in candidate_steps if str(step.get("step_id") or "") == step_id]

@@ -2,8 +2,8 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.api.chat import _active_skill_for_assistant_message
-from app.api.skills import _skill_stats
-from app.db.models import AgentEvent, Message, SkillFeedback
+from app.api.skills import _skill_stats, skill_read
+from app.db.models import AgentEvent, Message, Skill, SkillFeedback
 from app.skills.skill_editor import SkillEditor
 from app.skills.skill_schema import SkillCard, SkillRewriteRequest
 
@@ -170,6 +170,23 @@ def test_message_feedback_attribution_uses_turn_active_skill() -> None:
         skill_id = _active_skill_for_assistant_message(db, "tenant_demo", assistant)
 
     assert skill_id == "refund"
+
+
+def test_skill_read_normalizes_duplicate_step_ids() -> None:
+    content = _skill_card()
+    content.steps[1].step_id = content.steps[0].step_id
+    row = Skill(
+        tenant_id="tenant_demo",
+        skill_id=content.skill_id,
+        name=content.name,
+        content_json=content.model_dump(),
+        status="draft",
+    )
+
+    payload = skill_read(row)
+    step_ids = [step.step_id for step in payload.content.steps]
+
+    assert step_ids == ["collect_info", "collect_info_2"]
 
 
 def _skill_card() -> SkillCard:

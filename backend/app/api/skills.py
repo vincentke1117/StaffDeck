@@ -22,12 +22,14 @@ from app.skills.skill_schema import (
     SkillRewriteResponse,
     SkillUpdateRequest,
 )
+from app.skills.step_ids import skill_card_with_unique_step_ids
 
 router = APIRouter(prefix="/api/enterprise/skills", tags=["enterprise:skills"])
 
 
 def skill_read(row: Skill, stats: dict[str, dict[str, float | int]] | None = None) -> SkillRead:
     skill_stats = (stats or {}).get(row.skill_id, {})
+    content, _warnings = skill_card_with_unique_step_ids(SkillCard.model_validate(row.content_json))
     return SkillRead(
         id=row.id,
         tenant_id=row.tenant_id,
@@ -36,7 +38,7 @@ def skill_read(row: Skill, stats: dict[str, dict[str, float | int]] | None = Non
         name=row.name,
         business_domain=row.business_domain,
         description=row.description,
-        content=SkillCard.model_validate(row.content_json),
+        content=content,
         status=row.status,
         call_count=int(skill_stats.get("call_count", 0)),
         positive_feedback_count=int(skill_stats.get("positive_feedback_count", 0)),
@@ -66,14 +68,15 @@ def create_skill(request: SkillCreateRequest, db: Session = Depends(get_session)
     ).first()
     if existing:
         raise HTTPException(status_code=409, detail="Skill ID already exists for this tenant")
-    content = request.content.model_dump()
+    normalized_content, _warnings = skill_card_with_unique_step_ids(request.content)
+    content = normalized_content.model_dump()
     row = Skill(
         tenant_id=request.tenant_id,
-        skill_id=request.content.skill_id,
-        version=request.content.version,
-        name=request.content.name,
-        business_domain=request.content.business_domain,
-        description=request.content.description,
+        skill_id=normalized_content.skill_id,
+        version=normalized_content.version,
+        name=normalized_content.name,
+        business_domain=normalized_content.business_domain,
+        description=normalized_content.description,
         content_json=content,
         status=request.status,
     )
@@ -94,11 +97,12 @@ def update_skill(skill_id: str, request: SkillUpdateRequest, db: Session = Depen
     if request.content.skill_id != skill_id:
         raise HTTPException(status_code=400, detail="Path skill_id must match content.skill_id")
     row = _get_skill(db, request.tenant_id, skill_id)
-    row.version = request.content.version
-    row.name = request.content.name
-    row.business_domain = request.content.business_domain
-    row.description = request.content.description
-    row.content_json = request.content.model_dump()
+    normalized_content, _warnings = skill_card_with_unique_step_ids(request.content)
+    row.version = normalized_content.version
+    row.name = normalized_content.name
+    row.business_domain = normalized_content.business_domain
+    row.description = normalized_content.description
+    row.content_json = normalized_content.model_dump()
     if request.status:
         row.status = request.status
     row.updated_at = utc_now()
