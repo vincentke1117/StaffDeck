@@ -853,8 +853,20 @@ class AgentLoop:
                 model_config,
                 step_result,
                 stream_events,
-            )
+        )
         return active_skill, router_decision, step_result, tool_result
+
+    def _tool_loop_decision_payload(
+        self,
+        iteration: int,
+        mode: str,
+        tool_call: ToolCall | None = None,
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {"mode": mode, "iteration": iteration}
+        if tool_call:
+            payload["tool_call"] = tool_call.model_dump(mode="json")
+            payload["target_tool_name"] = tool_call.name
+        return payload
 
     def _execute_tool_action_cycle(
         self,
@@ -874,6 +886,7 @@ class AgentLoop:
             tool_call = step_result.tool_call
             if not tool_call:
                 break
+            tool_call_id = new_id("toolcall")
             signature = self._tool_call_signature(tool_call)
             if signature in seen_calls:
                 self.events.record(
@@ -884,15 +897,19 @@ class AgentLoop:
                 )
                 break
             seen_calls.add(signature)
-            self._emit_tool_status(tool_call, stream_events, status_callback)
-            tool_result = self._execute_tool_call(request, chat_session, tool_call)
+            self._emit_tool_status(tool_call, tool_call_id, stream_events, status_callback)
+            tool_result = self._execute_tool_call(request, chat_session, tool_call, tool_call_id)
             self._record_tool_result_in_slots(chat_session, tool_call, tool_result)
             if stream_events is not None:
                 stream_events.append(
                     (
                         "tool_result",
                         self._tool_activity_payload(
-                            request.tenant_id, tool_call.name, tool_result
+                            request.tenant_id,
+                            tool_call.name,
+                            tool_result,
+                            tool_call,
+                            tool_call_id,
                         ),
                     )
                 )
@@ -909,7 +926,7 @@ class AgentLoop:
                 self.db.refresh(chat_session)
                 break
 
-            self._emit_thinking_status(chat_session, stream_events, status_callback)
+            self._emit_thinking_status(chat_session, iteration + 1, stream_events, status_callback)
             continuation_result = self._run_step_agent_once(
                 request,
                 chat_session,
@@ -930,18 +947,20 @@ class AgentLoop:
             self.db.refresh(chat_session)
             step_result = continuation_result
             if step_result.tool_call:
-                self.events.record(
-                    request.tenant_id,
-                    chat_session.id,
-                    "agent_loop_continued",
-                    {
-                        "mode": "model_tool_call",
-                        "iteration": iteration + 1,
-                        "tool_call": step_result.tool_call.model_dump(),
-                    },
+                payload = self._tool_loop_decision_payload(
+                    iteration + 1,
+                    "model_tool_call",
+                    step_result.tool_call,
                 )
+                self.events.record(request.tenant_id, chat_session.id, "agent_loop_continued", payload)
+                if stream_events is not None:
+                    stream_events.append(("agent_loop_continued", payload))
                 continue
 
+            payload = self._tool_loop_decision_payload(iteration + 1, "respond")
+            self.events.record(request.tenant_id, chat_session.id, "agent_loop_completed", payload)
+            if stream_events is not None:
+                stream_events.append(("agent_loop_completed", payload))
             self._advance_after_successful_tool(
                 request.tenant_id,
                 chat_session,
@@ -987,6 +1006,7 @@ class AgentLoop:
     def _emit_tool_status(
         self,
         tool_call: ToolCall,
+        tool_call_id: str,
         stream_events: list[tuple[str, dict[str, object]]] | None,
         status_callback: StatusCallback | None,
     ) -> None:
@@ -994,6 +1014,8 @@ class AgentLoop:
             "phase": "tool",
             "text": f"正在调用工具 {tool_call.name}",
             "tool_name": tool_call.name,
+            "tool_call_id": tool_call_id,
+            "tool_call": tool_call.model_dump(mode="json"),
         }
         if stream_events is not None:
             stream_events.append(("status", payload))
@@ -1003,6 +1025,7 @@ class AgentLoop:
     def _emit_thinking_status(
         self,
         chat_session: ChatSession,
+        iteration: int,
         stream_events: list[tuple[str, dict[str, object]]] | None,
         status_callback: StatusCallback | None,
     ) -> None:
@@ -1012,6 +1035,7 @@ class AgentLoop:
             "active_skill_id": chat_session.active_skill_id,
             "active_step_id": chat_session.active_step_id,
             "repair_reason": "tool_continuation",
+            "iteration": iteration,
         }
         if stream_events is not None:
             stream_events.append(("status", payload))
@@ -1397,24 +1421,35 @@ class AgentLoop:
         )
 
     def _execute_tool_call(
-        self, request: ChatTurnRequest, chat_session: ChatSession, tool_call: ToolCall
+        self,
+        request: ChatTurnRequest,
+        chat_session: ChatSession,
+        tool_call: ToolCall,
+        tool_call_id: str | None = None,
     ) -> ToolResult:
+        started_payload = tool_call.model_dump(mode="json")
+        if tool_call_id:
+            started_payload["tool_call_id"] = tool_call_id
         self.events.record(
             request.tenant_id,
             chat_session.id,
             "tool_call_started",
-            tool_call.model_dump(),
+            started_payload,
         )
         self.db.commit()
         self.db.refresh(chat_session)
         tool_result = self.tool_executor.execute(
             request.tenant_id, tool_call, chat_session.active_skill_id
         )
+        finished_payload = tool_result.model_dump(mode="json")
+        if tool_call_id:
+            finished_payload["tool_call_id"] = tool_call_id
+        finished_payload["tool_call"] = tool_call.model_dump(mode="json")
         self.events.record(
             request.tenant_id,
             chat_session.id,
             "tool_call_finished",
-            tool_result.model_dump(),
+            finished_payload,
         )
         self.db.commit()
         self.db.refresh(chat_session)
@@ -1904,11 +1939,18 @@ class AgentLoop:
             **(runtime_context or {}),
         }
 
-    def _tool_activity_payload(self, tenant_id: str, tool_name: str, tool_result: ToolResult) -> dict[str, object]:
+    def _tool_activity_payload(
+        self,
+        tenant_id: str,
+        tool_name: str,
+        tool_result: ToolResult,
+        tool_call: ToolCall | None = None,
+        tool_call_id: str | None = None,
+    ) -> dict[str, object]:
         tool = self.db.exec(
             select(Tool).where(Tool.tenant_id == tenant_id, Tool.name == tool_name)
         ).first()
-        return {
+        payload: dict[str, object] = {
             "toolId": tool_name,
             "toolName": tool.display_name or tool.name if tool else tool_name,
             "rawToolName": tool_name,
@@ -1916,6 +1958,12 @@ class AgentLoop:
             "isError": not tool_result.success,
             "success": tool_result.success,
         }
+        if tool_call:
+            payload["toolCall"] = tool_call.model_dump(mode="json")
+            payload["arguments"] = tool_call.arguments
+        if tool_call_id:
+            payload["toolCallId"] = tool_call_id
+        return payload
 
     def _enqueue_memory_capture(
         self,

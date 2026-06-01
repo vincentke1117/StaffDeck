@@ -576,8 +576,8 @@ def _build_turn_traces(
         if not current:
             continue
 
-        line = _event_trace_line(event, skill_names)
-        if line:
+        lines = _event_trace_lines(event, skill_names)
+        for line in lines:
             _upsert_trace_line(current["lines"], line)
         if event.event_type == "assistant_message_created":
             current["completed_at"] = event.created_at.isoformat()
@@ -604,7 +604,16 @@ def _matching_user_message(
     return None
 
 
-def _event_trace_line(event: AgentEvent, skill_names: dict[str, str]) -> dict | None:
+def _event_trace_lines(event: AgentEvent, skill_names: dict[str, str]) -> list[dict]:
+    line = _event_trace_line(event, skill_names)
+    if not line:
+        return []
+    if isinstance(line, list):
+        return line
+    return [line]
+
+
+def _event_trace_line(event: AgentEvent, skill_names: dict[str, str]) -> dict | list[dict] | None:
     payload = event.payload_json or {}
     if event.event_type == "router_decision_created":
         intent = str(payload.get("user_intent") or "").strip()
@@ -651,10 +660,11 @@ def _event_trace_line(event: AgentEvent, skill_names: dict[str, str]) -> dict | 
         }
     if event.event_type == "tool_call_started":
         name = str(payload.get("name") or "")
+        tool_call_id = str(payload.get("tool_call_id") or name or event.id)
         if not name:
             return None
         return {
-            "id": f"tool_{name}",
+            "id": f"tool_{tool_call_id}",
             "kind": "tool",
             "text": f"调用工具 {name}",
             "detail": None,
@@ -662,14 +672,43 @@ def _event_trace_line(event: AgentEvent, skill_names: dict[str, str]) -> dict | 
         }
     if event.event_type == "tool_call_finished":
         name = str(payload.get("tool_name") or "")
+        tool_call_id = str(payload.get("tool_call_id") or name or event.id)
         success = bool(payload.get("success"))
         return {
-            "id": f"tool_{name or event.id}",
+            "id": f"tool_{tool_call_id}",
             "kind": "tool",
             "text": f"{'调用工具' if success else '工具调用失败'} {name}",
             "detail": _tool_trace_detail(payload),
             "state": "completed" if success else "failed",
         }
+    if event.event_type == "agent_loop_continued":
+        iteration = str(payload.get("iteration") or event.id)
+        target_tool = str(payload.get("target_tool_name") or "").strip()
+        return {
+            "id": f"decision_stepping_tool_continuation_{iteration}",
+            "kind": "decision",
+            "text": "重新分析执行动作",
+            "detail": f"决定继续调用工具 {target_tool}" if target_tool else "决定继续调用工具",
+            "state": "completed",
+        }
+    if event.event_type == "agent_loop_completed":
+        iteration = str(payload.get("iteration") or event.id)
+        return [
+            {
+                "id": f"decision_stepping_tool_continuation_{iteration}",
+                "kind": "decision",
+                "text": "重新分析执行动作",
+                "detail": "判断无需继续调用工具",
+                "state": "completed",
+            },
+            {
+                "id": f"decision_responding_{iteration}",
+                "kind": "decision",
+                "text": "组织回复",
+                "detail": None,
+                "state": "completed",
+            },
+        ]
     if event.event_type == "reflection_decision_created":
         needs_retry = bool(payload.get("needs_retry"))
         return {

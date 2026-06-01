@@ -46,6 +46,7 @@ type TraceSkill = {
 
 type TraceTool = {
   toolId: string;
+  toolCallId?: string;
   toolName: string;
   rawToolName?: string;
   success?: boolean;
@@ -229,6 +230,7 @@ function normalizeTraceTool(value: unknown): TraceTool | null {
   if (!toolId) return null;
   return {
     toolId,
+    toolCallId: typeof item.toolCallId === 'string' ? item.toolCallId : undefined,
     toolName: typeof item.toolName === 'string' ? item.toolName : toolId,
     rawToolName: typeof item.rawToolName === 'string' ? item.rawToolName : toolId,
     success: typeof item.success === 'boolean' ? item.success : undefined,
@@ -741,11 +743,35 @@ export default function ChatWindowPage() {
           const tool = normalizeTraceTool(item.data);
           if (tool) {
             upsertTraceLine(turnId, {
-              id: `tool_${tool.rawToolName || tool.toolId}`,
+              id: `tool_${tool.toolCallId || tool.rawToolName || tool.toolId}`,
               kind: 'tool',
               text: `${tool.isError ? '工具调用失败' : '调用工具'} ${tool.toolName}`,
               detail: toolTraceDetail(tool),
               state: tool.isError ? 'failed' : 'completed',
+            });
+          }
+          return;
+        }
+        if (item.event === 'agent_loop_continued' || item.event === 'agent_loop_completed') {
+          const iteration = typeof item.data.iteration === 'number' || typeof item.data.iteration === 'string'
+            ? String(item.data.iteration)
+            : '1';
+          const targetTool = typeof item.data.target_tool_name === 'string' ? item.data.target_tool_name : '';
+          upsertTraceLine(turnId, {
+            id: `decision_stepping_tool_continuation_${iteration}`,
+            kind: 'decision',
+            text: '重新分析执行动作',
+            detail: item.event === 'agent_loop_continued'
+              ? (targetTool ? `决定继续调用工具 ${targetTool}` : '决定继续调用工具')
+              : '判断无需继续调用工具',
+            state: 'completed',
+          });
+          if (item.event === 'agent_loop_completed') {
+            upsertTraceLine(turnId, {
+              id: 'decision_responding',
+              kind: 'decision',
+              text: '组织回复',
+              state: 'running',
             });
           }
           return;
@@ -767,8 +793,9 @@ export default function ChatWindowPage() {
           const phase = typeof item.data.phase === 'string' ? item.data.phase : 'thinking';
           eventStream.phase = publicStreamPhase(item.data);
           if (phase === 'tool' && typeof item.data.tool_name === 'string') {
+            const toolCallId = typeof item.data.tool_call_id === 'string' ? item.data.tool_call_id : item.data.tool_name;
             upsertTraceLine(turnId, {
-              id: `tool_${item.data.tool_name}`,
+              id: `tool_${toolCallId}`,
               kind: 'tool',
               text: `正在调用工具 ${item.data.tool_name}`,
               state: 'running',
@@ -777,8 +804,11 @@ export default function ChatWindowPage() {
             upsertTraceLine(turnId, { id: 'decision_router', kind: 'decision', text: '判断意图', state: 'running' });
           } else if (phase === 'stepping') {
             const repairReason = typeof item.data.repair_reason === 'string' ? item.data.repair_reason : 'main';
+            const iteration = typeof item.data.iteration === 'number' || typeof item.data.iteration === 'string'
+              ? `_${item.data.iteration}`
+              : '';
             upsertTraceLine(turnId, {
-              id: `decision_stepping_${repairReason}`,
+              id: `decision_stepping_${repairReason}${iteration}`,
               kind: 'decision',
               text: repairReason === 'main' ? '分析执行动作' : '重新分析执行动作',
               state: 'running',

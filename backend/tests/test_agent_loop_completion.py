@@ -438,8 +438,9 @@ def test_tool_continuation_is_model_driven_and_accumulates_results() -> None:
         ]
     )
     loop._recent_messages = lambda session: []  # type: ignore[method-assign]
-    loop._tool_activity_payload = lambda tenant_id, name, result: {  # type: ignore[method-assign]
+    loop._tool_activity_payload = lambda tenant_id, name, result, *args: {  # type: ignore[method-assign]
         "toolName": name,
+        "toolCallId": args[1] if len(args) > 1 else "",
         "content": result.model_dump(mode="json"),
         "success": result.success,
         "isError": not result.success,
@@ -452,6 +453,7 @@ def test_tool_continuation_is_model_driven_and_accumulates_results() -> None:
         slots_json={"product_name_1": "A1", "product_name_2": "A3"},
     )
 
+    stream_events: list[tuple[str, dict[str, object]]] = []
     step_result, tool_result = loop._execute_tool_action_cycle(
         _request("我想比下 A1 和 A3 的价格"),
         session,
@@ -462,7 +464,7 @@ def test_tool_continuation_is_model_driven_and_accumulates_results() -> None:
             tool_call=ToolCall(name="product.price_query", arguments={"product_name": "A1"}),
             is_step_completed=True,
         ),
-        [],
+        stream_events,
     )
 
     assert [call.arguments["product_name"] for call in loop.tool_executor.calls] == ["A1", "A3"]
@@ -472,6 +474,10 @@ def test_tool_continuation_is_model_driven_and_accumulates_results() -> None:
     assert step_result.tool_call is None
     assert session.active_step_id == "reply_result"
     assert len(session.slots_json["_tool_results"]) == 2
+    tool_result_events = [payload for event, payload in stream_events if event == "tool_result"]
+    assert len(tool_result_events) == 2
+    assert tool_result_events[0]["toolCallId"] != tool_result_events[1]["toolCallId"]
+    assert any(event == "agent_loop_continued" for event, _ in stream_events)
 
 
 def test_tool_continuation_respects_configured_action_limit() -> None:
@@ -488,8 +494,9 @@ def test_tool_continuation_respects_configured_action_limit() -> None:
         ]
     )
     loop._recent_messages = lambda session: []  # type: ignore[method-assign]
-    loop._tool_activity_payload = lambda tenant_id, name, result: {  # type: ignore[method-assign]
+    loop._tool_activity_payload = lambda tenant_id, name, result, *args: {  # type: ignore[method-assign]
         "toolName": name,
+        "toolCallId": args[1] if len(args) > 1 else "",
         "content": result.model_dump(mode="json"),
         "success": result.success,
         "isError": not result.success,

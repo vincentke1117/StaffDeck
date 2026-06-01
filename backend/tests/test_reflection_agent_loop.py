@@ -95,7 +95,7 @@ def test_reflection_tool_retry_preserves_router_decision_and_streams_tool_events
     loop.db = _FakeDb()
     loop.events = _FakeEvents()
     loop.tool_executor = _FakeToolExecutor()
-    loop._tool_activity_payload = lambda tenant_id, name, result: {  # type: ignore[method-assign]
+    loop._tool_activity_payload = lambda tenant_id, name, result, *args: {  # type: ignore[method-assign]
         "toolId": name,
         "toolName": name,
         "rawToolName": name,
