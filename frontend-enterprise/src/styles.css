@@ -1224,7 +1224,7 @@ body.skill-distill-fixed .content {
 
 .skill-ranking-item {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) auto auto;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
 }
@@ -1242,12 +1242,14 @@ body.skill-distill-fixed .content {
 
 .skill-ranking-main {
   min-width: 0;
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .skill-ranking-name {
   min-width: 0;
+  flex: 0 1 auto;
   overflow: hidden;
   color: var(--foreground);
   font-size: 13px;
@@ -1258,6 +1260,7 @@ body.skill-distill-fixed .content {
 }
 
 .skill-ranking-version {
+  flex: 0 0 auto;
   padding: 3px 8px;
   color: var(--foreground);
   background: var(--surface-subtle);

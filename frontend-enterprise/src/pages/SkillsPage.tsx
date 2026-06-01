@@ -461,8 +461,8 @@ function RankingCard({
             <span className="skill-ranking-index">{row.rank}</span>
             <span className="skill-ranking-main">
               <span className="skill-ranking-name" title={row.name}>{row.name}</span>
+              {version && <span className="skill-ranking-version">{version(row)}</span>}
             </span>
-            {version && <span className="skill-ranking-version">{version(row)}</span>}
             <strong>{value(row)}</strong>
           </div>
         ))

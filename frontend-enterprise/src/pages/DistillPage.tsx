@@ -127,6 +127,8 @@ export default function DistillPage() {
   const [saveName, setSaveName] = useState('');
   const [saveDomain, setSaveDomain] = useState('');
   const [saveVersion, setSaveVersion] = useState('');
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [clearAfterSave, setClearAfterSave] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('source');
   const [loading, setLoading] = useState(false);
   const [attachments, setAttachments] = useState<UploadAttachment[]>([]);
@@ -488,10 +490,11 @@ export default function DistillPage() {
     }
   }
 
-  function openSaveReview() {
+  function openSaveReview(options: { clearAfterSave?: boolean } = {}) {
     const targetDraft = pendingChange?.nextDraft || draft;
     if (!targetDraft) return;
     confirmPendingChange(false);
+    setClearAfterSave(Boolean(options.clearAfterSave));
     setSaveDraftSnapshot(targetDraft);
     setSaveName(targetDraft.name);
     setSaveDomain(targetDraft.business_domain || '');
@@ -529,7 +532,13 @@ export default function DistillPage() {
       setHighlightedPaths([]);
       setDirtyPaths([]);
       setSaveReviewOpen(false);
-      message.success('草稿已保存');
+      if (clearAfterSave) {
+        setClearAfterSave(false);
+        clearDistillWorkspace();
+        message.success('草稿已保存，当前改写已清空');
+      } else {
+        message.success('草稿已保存');
+      }
     } catch (error) {
       message.error(error instanceof Error ? error.message : '保存失败');
     }
@@ -677,6 +686,53 @@ export default function DistillPage() {
   function closeSaveReview() {
     setSaveReviewOpen(false);
     setSaveDraftSnapshot(null);
+    setClearAfterSave(false);
+  }
+
+  function handleClearClick() {
+    if (loading) return;
+    if (!hasUnsavedSkillChanges()) {
+      Modal.confirm({
+        title: '清空当前改写？',
+        content: '当前技能没有未保存变更，确认清空当前改写内容和对话记录？',
+        okText: '清空',
+        cancelText: '取消',
+        onOk: clearDistillWorkspace,
+      });
+      return;
+    }
+    setClearConfirmOpen(true);
+  }
+
+  function hasUnsavedSkillChanges() {
+    const targetDraft = pendingChange?.nextDraft || draft;
+    if (!targetDraft) return false;
+    if (!lastSavedDraft) return true;
+    return JSON.stringify(targetDraft) !== JSON.stringify(lastSavedDraft);
+  }
+
+  function clearDistillWorkspace() {
+    clearAnimationTimers();
+    abortRef.current?.abort();
+    Object.values(uploadControllersRef.current).forEach((controller) => controller.abort());
+    uploadControllersRef.current = {};
+    setDraft(null);
+    setLoadedSkill(null);
+    setLastSavedDraft(null);
+    setMessages(DEFAULT_DISTILL_MESSAGES);
+    setInput('');
+    setSelectedPaths(DEFAULT_TARGET_PATHS);
+    setHighlightedPaths([]);
+    setUpdatingPaths([]);
+    setDirtyPaths([]);
+    setTextDiffs([]);
+    setPendingChange(null);
+    setSaveDraftSnapshot(null);
+    setSaveReviewOpen(false);
+    setClearConfirmOpen(false);
+    setClearAfterSave(false);
+    setAttachments([]);
+    setStreamStatus('');
   }
 
   function toggleTarget(target: TargetSelection) {
@@ -996,9 +1052,14 @@ export default function DistillPage() {
           className="skill-source-card"
           title={viewMode === 'source' ? '源码' : '流程图'}
           extra={
-            <Button disabled={!draft || loading} icon={<SaveOutlined />} onClick={openSaveReview}>
-              保存草稿
-            </Button>
+            <Space>
+              <Button disabled={loading} onClick={handleClearClick}>
+                清空
+              </Button>
+              <Button disabled={!draft || loading} icon={<SaveOutlined />} onClick={() => openSaveReview()}>
+                保存草稿
+              </Button>
+            </Space>
           }
         >
           <div className="skill-source-toolbar">
@@ -1043,6 +1104,38 @@ export default function DistillPage() {
           )}
         </Card>
       </div>
+      <Modal
+        open={clearConfirmOpen}
+        title="清空前是否保存？"
+        width={520}
+        onCancel={() => setClearConfirmOpen(false)}
+        footer={
+          <Space>
+            <Button onClick={() => setClearConfirmOpen(false)}>取消</Button>
+            <Button
+              onClick={() => {
+                setClearConfirmOpen(false);
+                clearDistillWorkspace();
+              }}
+            >
+              不保存清空
+            </Button>
+            <Button
+              type="primary"
+              onClick={() => {
+                setClearConfirmOpen(false);
+                openSaveReview({ clearAfterSave: true });
+              }}
+            >
+              保存并清空
+            </Button>
+          </Space>
+        }
+      >
+        <Typography.Paragraph>
+          检测到当前技能有未保存变更。你可以先保存当前技能版本，保存成功后会自动清空当前改写内容。
+        </Typography.Paragraph>
+      </Modal>
       <Modal
         open={saveReviewOpen}
         title="保存技能版本"
