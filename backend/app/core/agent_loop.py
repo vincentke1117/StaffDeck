@@ -1872,7 +1872,13 @@ class AgentLoop:
         event_type = "skill_step_changed"
         if decision.decision == "start_skill":
             event_type = "skill_started"
-        elif decision.decision == "suspend_current_and_start_new_skill":
+        elif decision.decision == "suspend_current_and_start_new_skill" or (
+            decision.decision
+            in {"answer_related_question_then_resume", "answer_chitchat_then_resume"}
+            and before_skill
+            and chat_session.active_skill_id
+            and before_skill != chat_session.active_skill_id
+        ):
             event_type = "skill_suspended"
         elif decision.decision == "exit_current_skill":
             event_type = "skill_resumed" if chat_session.active_skill_id else "skill_exited"

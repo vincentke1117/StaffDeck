@@ -30,14 +30,34 @@ class SkillRuntime:
             "answer_chitchat_then_resume",
         }:
             if session.active_skill_id and session.active_step_id:
-                session.resume_after_answer_json = {
-                    "skill_id": session.active_skill_id,
-                    "step_id": session.active_step_id,
-                }
-            if decision.target_skill_id:
-                session.active_skill_id = decision.target_skill_id
-            if decision.target_step_id:
-                session.active_step_id = decision.target_step_id
+                session.resume_after_answer_json = current_frame
+            current_skill_id = current_frame["skill_id"]
+            if (
+                decision.target_skill_id
+                and current_skill_id
+                and decision.target_skill_id != current_skill_id
+            ):
+                target_frame, stack = _pop_last_skill_frame(
+                    session.skill_stack_json, decision.target_skill_id
+                )
+                stack = _without_skill(stack, str(current_skill_id))
+                stack.append(current_frame)
+                session.skill_stack_json = stack
+                if target_frame:
+                    session.active_skill_id = target_frame.get("skill_id")
+                    session.active_step_id = target_frame.get("step_id") or decision.target_step_id
+                    session.slots_json = target_frame.get("slots") or {}
+                    session.summary = target_frame.get("summary")
+                    session.last_agent_question = target_frame.get("last_agent_question")
+                else:
+                    session.active_skill_id = decision.target_skill_id
+                    session.active_step_id = decision.target_step_id
+                    session.slots_json = {}
+            else:
+                if decision.target_skill_id:
+                    session.active_skill_id = decision.target_skill_id
+                if decision.target_step_id:
+                    session.active_step_id = decision.target_step_id
 
         elif decision.decision == "suspend_current_and_start_new_skill":
             target_frame, stack = _pop_last_skill_frame(
@@ -87,6 +107,9 @@ class SkillRuntime:
         if resume:
             session.active_skill_id = resume.get("skill_id")
             session.active_step_id = resume.get("step_id")
+            session.slots_json = resume.get("slots") or {}
+            session.summary = resume.get("summary")
+            session.last_agent_question = resume.get("last_agent_question")
             session.skill_stack_json = _without_skill(session.skill_stack_json, session.active_skill_id)
             session.resume_after_answer_json = None
             session.updated_at = utc_now()

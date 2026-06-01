@@ -631,24 +631,64 @@ def _event_trace_line(event: AgentEvent, skill_names: dict[str, str]) -> dict | 
         skill_id = to_skill_id or from_skill_id
         if not skill_id:
             return None
+        decision = str(payload.get("decision") or "")
+        is_interrupt_switch = (
+            decision in {"answer_related_question_then_resume", "answer_chitchat_then_resume"}
+            and from_skill_id
+            and to_skill_id
+            and from_skill_id != to_skill_id
+        )
         label = {
             "skill_started": "选择技能",
             "skill_suspended": "切换技能",
             "skill_resumed": "恢复技能",
             "skill_step_changed": "推进技能",
         }[event.event_type]
+        if is_interrupt_switch:
+            label = "切换技能"
         detail_parts = []
         if from_skill_id and from_skill_id != to_skill_id:
             detail_parts.append(f"from {skill_names.get(from_skill_id, from_skill_id)}")
         if payload.get("to_step_id"):
             detail_parts.append(f"step {payload['to_step_id']}")
-        return {
+        line = {
             "id": f"skill_{event.id}",
             "kind": "skill",
             "text": f"{label} {skill_names.get(skill_id, skill_id)}",
             "detail": " · ".join(detail_parts) or None,
             "state": "completed",
         }
+        if event.event_type != "skill_suspended" and not is_interrupt_switch:
+            return line
+        stack_lines = []
+        for index, frame in enumerate(payload.get("skill_stack") or []):
+            if not isinstance(frame, dict):
+                continue
+            suspended_skill_id = str(frame.get("skill_id") or "")
+            if not suspended_skill_id or suspended_skill_id == skill_id:
+                continue
+            suspended_step_id = str(frame.get("step_id") or "").strip()
+            stack_lines.append(
+                {
+                    "id": f"skill_{event.id}_suspended_{index}",
+                    "kind": "skill",
+                    "text": f"挂起技能 {skill_names.get(suspended_skill_id, suspended_skill_id)}",
+                    "detail": f"当前步骤 {suspended_step_id}" if suspended_step_id else None,
+                    "state": "completed",
+                }
+            )
+        if not stack_lines and from_skill_id and from_skill_id != skill_id:
+            from_step_id = str(payload.get("from_step_id") or "").strip()
+            stack_lines.append(
+                {
+                    "id": f"skill_{event.id}_suspended_from",
+                    "kind": "skill",
+                    "text": f"挂起技能 {skill_names.get(from_skill_id, from_skill_id)}",
+                    "detail": f"当前步骤 {from_step_id}" if from_step_id else None,
+                    "state": "completed",
+                }
+            )
+        return [*stack_lines, line]
     if event.event_type == "skill_completed":
         skill_id = str(payload.get("skill_id") or "")
         return {

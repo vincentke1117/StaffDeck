@@ -217,8 +217,16 @@ function normalizeTraceSkill(value: unknown): TraceSkill | null {
 function streamSkillLabel(data: Record<string, unknown>, skill: TraceSkill): string {
   if (skill.state === 'suspended') return '挂起技能';
   const decision = typeof data.runtimeDecision === 'string' ? data.runtimeDecision : '';
+  const fromSkillId = typeof data.fromSkillId === 'string' ? data.fromSkillId : '';
+  const toSkillId = typeof data.toSkillId === 'string' ? data.toSkillId : '';
   if (decision === 'start_skill') return '选择技能';
   if (decision === 'suspend_current_and_start_new_skill') return '切换技能';
+  if (
+    (decision === 'answer_related_question_then_resume' || decision === 'answer_chitchat_then_resume')
+    && fromSkillId
+    && toSkillId
+    && fromSkillId !== toSkillId
+  ) return '切换技能';
   if (decision === 'exit_current_skill') return '恢复技能';
   return '推进技能';
 }
