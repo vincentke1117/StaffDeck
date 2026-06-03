@@ -247,9 +247,11 @@ def test_skill_editor_applies_patch_response_without_full_draft() -> None:
 
 def test_skill_editor_stream_repairs_invalid_json_once(monkeypatch) -> None:
     def fake_stream(self, _system_prompt: str, _payload: dict):  # noqa: ANN001
+        assert self.max_output_tokens == 16384
         yield '{"assistant_message": "截断的输出", "patches": ['
 
     def fake_text(self, _system_prompt: str, payload: dict):  # noqa: ANN001
+        assert self.max_output_tokens == 16384
         assert "previous_error" in payload
         return json.dumps(
             {
@@ -787,6 +789,7 @@ def test_skill_read_normalizes_duplicate_step_ids() -> None:
 
 def test_skill_distiller_stream_uses_generation_status(monkeypatch) -> None:
     def fake_stream(self, _system_prompt: str, _payload: dict):  # noqa: ANN001
+        assert self.max_output_tokens == 16384
         yield """
         {
           "draft_skill": {

@@ -9,6 +9,7 @@ from typing import Any
 
 from app.db.models import ModelConfig
 from app.llm import LLMClient, LLMError
+from app.skills.llm_limits import skill_model_config
 from app.skills.skill_schema import SkillDistillRequest, SkillDistillResponse, SkillCard, SkillStep, ToolSuggestion
 from app.skills.step_ids import ensure_unique_step_ids, skill_card_with_unique_step_ids
 
@@ -38,7 +39,7 @@ ADAPTIVE_STEP_INSTRUCTION_SUFFIX = (
 class SkillDistiller:
     def distill(self, request: SkillDistillRequest, model_config: ModelConfig) -> SkillDistillResponse:
         payload = self._payload(request)
-        raw = LLMClient(model_config).generate_json(PROMPT_PATH.read_text(encoding="utf-8"), payload)
+        raw = LLMClient(skill_model_config(model_config)).generate_json(PROMPT_PATH.read_text(encoding="utf-8"), payload)
         return self._normalize_response(raw, request)
 
     def distill_stream(self, request: SkillDistillRequest, model_config: ModelConfig) -> SkillDistillResponse:
@@ -48,7 +49,11 @@ class SkillDistiller:
             "raw_content": request.raw_content,
             "available_tools": request.available_tools,
         }
-        text = "".join(LLMClient(model_config).generate_text_stream(PROMPT_PATH.read_text(encoding="utf-8"), payload))
+        text = "".join(
+            LLMClient(skill_model_config(model_config)).generate_text_stream(
+                PROMPT_PATH.read_text(encoding="utf-8"), payload
+            )
+        )
         return self._normalize_response(json.loads(_extract_json(text)), request)
 
     def stream_text(self, request: SkillDistillRequest, model_config: ModelConfig):
@@ -56,7 +61,9 @@ class SkillDistiller:
         chunks: list[str] = []
         try:
             yield {"event": "status", "data": {"text": "模型正在规划技能结构"}}
-            for chunk in LLMClient(model_config).generate_text_stream(PROMPT_PATH.read_text(encoding="utf-8"), payload):
+            for chunk in LLMClient(skill_model_config(model_config)).generate_text_stream(
+                PROMPT_PATH.read_text(encoding="utf-8"), payload
+            ):
                 chunks.append(chunk)
                 yield {"event": "chunk", "data": {"content": chunk}}
             yield {"event": "status", "data": {"text": "正在校验模型输出结构"}}

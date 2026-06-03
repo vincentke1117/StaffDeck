@@ -8,6 +8,7 @@ from typing import Any, Iterator
 
 from app.db.models import ModelConfig
 from app.llm import LLMClient, LLMError
+from app.skills.llm_limits import skill_model_config
 from app.skills.skill_schema import SkillCard, SkillRewriteRequest, SkillRewriteResponse
 from app.skills.skill_distiller import _compact_warnings, _normalize_tool_suggestions, _remove_unknown_tool_actions
 from app.skills.step_ids import skill_card_with_unique_step_ids
@@ -33,7 +34,9 @@ STEP_FIELDS = {"step_id", "name", "instruction", "expected_user_info", "allowed_
 
 class SkillEditor:
     def rewrite(self, request: SkillRewriteRequest, model_config: ModelConfig) -> SkillRewriteResponse:
-        raw = LLMClient(model_config).generate_json(PROMPT_PATH.read_text(encoding="utf-8"), self._payload(request))
+        raw = LLMClient(skill_model_config(model_config)).generate_json(
+            PROMPT_PATH.read_text(encoding="utf-8"), self._payload(request)
+        )
         return self._normalize_response(raw, request)
 
     def stream_text(
@@ -42,7 +45,7 @@ class SkillEditor:
         chunks: list[str] = []
         prompt = PROMPT_PATH.read_text(encoding="utf-8")
         payload = self._payload(request)
-        client = LLMClient(model_config)
+        client = LLMClient(skill_model_config(model_config))
         try:
             yield {"event": "status", "data": {"text": "模型正在分析改写范围"}}
             for chunk in client.generate_text_stream(prompt, payload):
