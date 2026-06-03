@@ -851,6 +851,161 @@ def test_skill_distiller_stream_uses_generation_status(monkeypatch) -> None:
     assert "已完成 Skill Card 结构化" in status_texts
 
 
+def test_skill_distiller_stream_repairs_invalid_json_with_model(monkeypatch) -> None:
+    def fake_stream(self, _system_prompt: str, _payload: dict):  # noqa: ANN001
+        assert self.max_output_tokens == 16384
+        yield '{"draft_skill": {"name": "截断"'
+
+    def fake_text(self, _system_prompt: str, payload: dict):  # noqa: ANN001
+        assert self.max_output_tokens == 16384
+        assert payload["repair_attempt"] == 1
+        return json.dumps(
+            {
+                "draft_skill": {
+                    "skill_id": "skill_compare_price",
+                    "name": "商品比价",
+                    "version": "1.0.0",
+                    "business_domain": "ecommerce",
+                    "description": "比较两个商品价格。",
+                    "trigger_intents": ["compare_price"],
+                    "user_utterance_examples": ["比较 A 和 B"],
+                    "goal": ["收集两个商品名称", "反馈比价结果"],
+                    "required_info": ["product_name_1", "product_name_2"],
+                    "slot_filling_policy": {
+                        "enabled": True,
+                        "multi_slot_per_turn": True,
+                        "extract_scope": "all_skill_expected_user_info",
+                        "skip_satisfied_steps": True,
+                        "target_info": ["product_name_1", "product_name_2"],
+                    },
+                    "response_rules": ["不要编造价格。"],
+                    "steps": [
+                        {
+                            "step_id": "collect_names",
+                            "name": "收集商品名称",
+                            "instruction": "收集两个商品名称。",
+                            "expected_user_info": ["product_name_1", "product_name_2"],
+                            "allowed_actions": ["ask_user"],
+                        },
+                        {
+                            "step_id": "reply_result",
+                            "name": "反馈结果",
+                            "instruction": "反馈明确结果。",
+                            "expected_user_info": [],
+                            "allowed_actions": ["answer_user"],
+                        },
+                    ],
+                    "interruption_policy": {},
+                },
+                "warnings": [],
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr("app.skills.skill_distiller.LLMClient.generate_text_stream", fake_stream)
+    monkeypatch.setattr("app.skills.skill_distiller.LLMClient.generate_text", fake_text)
+
+    events = list(
+        SkillDistiller().stream_text(
+            SkillDistillRequest(
+                tenant_id="tenant_demo",
+                title="商品比价",
+                raw_content="用户提供两个商品的名称，系统根据商品价格进行比价",
+            ),
+            _model_config(),
+        )
+    )
+    status_texts = [event["data"]["text"] for event in events if event["event"] == "status"]
+    complete = next(event for event in events if event["event"] == "complete")
+
+    assert "模型输出需要修复，正在重试" in status_texts
+    assert any(event["event"] == "chunk_reset" for event in events)
+    assert complete["data"]["draft_skill"]["name"] == "商品比价"
+
+
+def test_skill_distiller_stream_uses_staged_generation_after_repair_failure(monkeypatch) -> None:
+    def fake_stream(self, _system_prompt: str, _payload: dict):  # noqa: ANN001
+        assert self.max_output_tokens == 16384
+        yield '{"draft_skill": {"name": "截断"'
+
+    def fake_text(self, _system_prompt: str, payload: dict):  # noqa: ANN001
+        assert self.max_output_tokens == 16384
+        if "repair_instruction" in payload:
+            return "still invalid"
+        mode = payload.get("generation_mode")
+        if mode == "outline_only":
+            return json.dumps(
+                {
+                    "draft_skill": {
+                        "skill_id": "skill_compare_price",
+                        "name": "商品比价",
+                        "version": "1.0.0",
+                        "business_domain": "ecommerce",
+                        "description": "比较两个商品价格。",
+                        "trigger_intents": ["compare_price"],
+                        "user_utterance_examples": ["比较 A 和 B"],
+                        "goal": ["收集两个商品名称", "反馈比价结果"],
+                        "required_info": ["product_name_1", "product_name_2"],
+                        "slot_filling_policy": {
+                            "enabled": True,
+                            "multi_slot_per_turn": True,
+                            "extract_scope": "all_skill_expected_user_info",
+                            "skip_satisfied_steps": True,
+                            "target_info": ["product_name_1", "product_name_2"],
+                        },
+                        "response_rules": ["不要编造价格。"],
+                        "steps": [
+                            {
+                                "step_id": "collect_names",
+                                "name": "收集商品名称",
+                                "instruction": "收集两个商品名称。",
+                                "expected_user_info": ["product_name_1", "product_name_2"],
+                                "allowed_actions": ["ask_user"],
+                            },
+                            {
+                                "step_id": "reply_result",
+                                "name": "反馈结果",
+                                "instruction": "反馈结果。",
+                                "expected_user_info": [],
+                                "allowed_actions": ["answer_user"],
+                            },
+                        ],
+                        "interruption_policy": {},
+                    },
+                    "warnings": [],
+                },
+                ensure_ascii=False,
+            )
+        if mode == "expand_step":
+            step = dict(payload["target_step"])
+            step["instruction"] = f"扩写步骤 {payload['target_step_index'] + 1}，支持自适应推进。"
+            return json.dumps({"step": step, "warnings": [], "tool_suggestions": []}, ensure_ascii=False)
+        if mode == "final_review":
+            return json.dumps({"draft_skill": payload["current_draft"], "warnings": []}, ensure_ascii=False)
+        raise AssertionError(f"unexpected payload: {payload}")
+
+    monkeypatch.setattr("app.skills.skill_distiller.LLMClient.generate_text_stream", fake_stream)
+    monkeypatch.setattr("app.skills.skill_distiller.LLMClient.generate_text", fake_text)
+
+    events = list(
+        SkillDistiller().stream_text(
+            SkillDistillRequest(
+                tenant_id="tenant_demo",
+                title="商品比价",
+                raw_content="用户提供两个商品的名称，系统根据商品价格进行比价",
+            ),
+            _model_config(),
+        )
+    )
+    status_texts = [event["data"]["text"] for event in events if event["event"] == "status"]
+    complete = next(event for event in events if event["event"] == "complete")
+    instructions = [step["instruction"] for step in complete["data"]["draft_skill"]["steps"]]
+
+    assert "模型修复失败，改用分段生成" in status_texts
+    assert any("扩写步骤 1" in instruction for instruction in instructions)
+    assert any("扩写步骤 2" in instruction for instruction in instructions)
+
+
 def test_extract_uploaded_skill_file_reads_docx_text() -> None:
     buffer = BytesIO()
     with ZipFile(buffer, "w") as archive:

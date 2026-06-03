@@ -394,6 +394,13 @@ export default function DistillPage() {
             appendThinkingDetail(assistantId, String(item.data.text || '正在处理'));
             return;
           }
+          if (item.event === 'chunk_reset') {
+            streamBuffer = '';
+            latestPreview = createStreamingDraftSeed(payload);
+            latestPreviewSignature = JSON.stringify(latestPreview);
+            setDraft(latestPreview);
+            return;
+          }
           if (item.event === 'chunk') {
             const content = typeof item.data.content === 'string' ? item.data.content : '';
             if (!content) return;

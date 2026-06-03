@@ -16,6 +16,7 @@ from app.skills.step_ids import ensure_unique_step_ids, skill_card_with_unique_s
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "llm" / "prompts" / "skill_distiller_prompt.md"
 STREAM_INTERVAL_SECONDS = 0.035
+MODEL_REPAIR_ATTEMPTS = 2
 CLOSED_LOOP_RESPONSE_RULE = (
     "流程必须形成闭环：不得把“请稍候/正在处理/稍后反馈”作为最终回复；"
     "需要外部事实、外部状态或外部副作用时必须调用已配置工具或转人工，并向用户给出明确结果。"
@@ -38,44 +39,169 @@ ADAPTIVE_STEP_INSTRUCTION_SUFFIX = (
 )
 class SkillDistiller:
     def distill(self, request: SkillDistillRequest, model_config: ModelConfig) -> SkillDistillResponse:
-        payload = self._payload(request)
-        raw = LLMClient(skill_model_config(model_config)).generate_json(PROMPT_PATH.read_text(encoding="utf-8"), payload)
-        return self._normalize_response(raw, request)
+        return self._generate_response(request, model_config)
 
     def distill_stream(self, request: SkillDistillRequest, model_config: ModelConfig) -> SkillDistillResponse:
-        payload = {
-            "title": request.title,
-            "business_domain": request.business_domain,
-            "raw_content": request.raw_content,
-            "available_tools": request.available_tools,
-        }
-        text = "".join(
-            LLMClient(skill_model_config(model_config)).generate_text_stream(
-                PROMPT_PATH.read_text(encoding="utf-8"), payload
-            )
-        )
-        return self._normalize_response(json.loads(_extract_json(text)), request)
+        return self._generate_response(request, model_config)
 
     def stream_text(self, request: SkillDistillRequest, model_config: ModelConfig):
         payload = self._payload(request)
         chunks: list[str] = []
+        prompt = PROMPT_PATH.read_text(encoding="utf-8")
+        client = LLMClient(skill_model_config(model_config))
         try:
             yield {"event": "status", "data": {"text": "模型正在规划技能结构"}}
-            for chunk in LLMClient(skill_model_config(model_config)).generate_text_stream(
-                PROMPT_PATH.read_text(encoding="utf-8"), payload
-            ):
+            for chunk in client.generate_text_stream(prompt, payload):
                 chunks.append(chunk)
                 yield {"event": "chunk", "data": {"content": chunk}}
             yield {"event": "status", "data": {"text": "正在校验模型输出结构"}}
-            response = self._normalize_response(json.loads(_extract_json("".join(chunks))), request)
-        except (LLMError, json.JSONDecodeError, ValueError) as exc:
-            yield {"event": "status", "data": {"text": "模型输出需修复，正在生成可用草稿"}}
-            response = self._fallback_response(request, f"模型输出未能直接解析，已使用规则兜底生成：{exc}")
-            for chunk in _chunk_text(json.dumps(response.draft_skill.model_dump(), ensure_ascii=False, indent=2)):
+            response = self._response_from_text("".join(chunks), request)
+        except (LLMError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            try:
+                yield {"event": "status", "data": {"text": "模型输出需要修复，正在重试"}}
+                response = self._repair_response(client, prompt, payload, "".join(chunks), str(exc), request)
+            except (LLMError, json.JSONDecodeError, TypeError, ValueError) as repair_exc:
+                try:
+                    yield {"event": "status", "data": {"text": "模型修复失败，改用分段生成"}}
+                    response = self._staged_response(client, prompt, payload, request, str(repair_exc))
+                except (LLMError, json.JSONDecodeError, TypeError, ValueError) as staged_exc:
+                    yield {"event": "status", "data": {"text": "模型多轮生成失败，使用最低可运行草稿"}}
+                    response = self._fallback_response(
+                        request, f"模型多轮生成未能完成，已使用最低可运行草稿：{staged_exc}"
+                    )
+            yield {"event": "chunk_reset", "data": {}}
+            for chunk in _chunk_text(_serialize_response_for_stream(response)):
                 yield {"event": "chunk", "data": {"content": chunk}}
                 sleep(STREAM_INTERVAL_SECONDS)
         yield {"event": "status", "data": {"text": "已完成 Skill Card 结构化"}}
         yield {"event": "complete", "data": response.model_dump(mode="json")}
+
+    def _generate_response(self, request: SkillDistillRequest, model_config: ModelConfig) -> SkillDistillResponse:
+        payload = self._payload(request)
+        prompt = PROMPT_PATH.read_text(encoding="utf-8")
+        client = LLMClient(skill_model_config(model_config))
+        output = ""
+        try:
+            output = client.generate_text(prompt, payload)
+            return self._response_from_text(output, request)
+        except (LLMError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            try:
+                return self._repair_response(client, prompt, payload, output, str(exc), request)
+            except (LLMError, json.JSONDecodeError, TypeError, ValueError) as repair_exc:
+                try:
+                    return self._staged_response(client, prompt, payload, request, str(repair_exc))
+                except (LLMError, json.JSONDecodeError, TypeError, ValueError) as staged_exc:
+                    return self._fallback_response(
+                        request, f"模型多轮生成未能完成，已使用最低可运行草稿：{staged_exc}"
+                    )
+
+    def _response_from_text(self, text: str, request: SkillDistillRequest) -> SkillDistillResponse:
+        raw = _raw_json_from_text(text)
+        return self._normalize_response(raw, request)
+
+    def _repair_response(
+        self,
+        client: LLMClient,
+        prompt: str,
+        payload: dict[str, Any],
+        previous_output: str,
+        previous_error: str,
+        request: SkillDistillRequest,
+    ) -> SkillDistillResponse:
+        output = previous_output
+        error = previous_error
+        for attempt in range(MODEL_REPAIR_ATTEMPTS):
+            repair_payload = {
+                **payload,
+                "previous_output": output,
+                "previous_error": error,
+                "repair_attempt": attempt + 1,
+                "repair_instruction": (
+                    "上一次输出无法解析或未通过 Skill Card 校验。请修复为完整合法 JSON。"
+                    "不要解释，不要使用代码围栏。必须保留原始流程中的步骤、工具建议和闭环约束。"
+                ),
+            }
+            output = client.generate_text(prompt, repair_payload)
+            try:
+                return self._response_from_text(output, request)
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                error = str(exc)
+        raise ValueError(error)
+
+    def _staged_response(
+        self,
+        client: LLMClient,
+        prompt: str,
+        payload: dict[str, Any],
+        request: SkillDistillRequest,
+        previous_error: str,
+    ) -> SkillDistillResponse:
+        outline_text = client.generate_text(
+            prompt,
+            {
+                **payload,
+                "generation_mode": "outline_only",
+                "previous_error": previous_error,
+                "generation_instruction": (
+                    "先生成完整但紧凑的 Skill Card 大纲。steps 必须覆盖原始流程全部步骤，"
+                    "每个 instruction 只写一句目标说明；保留 response_rules、slot_filling_policy、"
+                    "interruption_policy 和 tool_suggestions。只输出 JSON。"
+                ),
+            },
+        )
+        outline = self._response_from_text(outline_text, request)
+        draft_data = outline.draft_skill.model_dump(mode="json")
+        warnings = list(outline.warnings)
+        tool_suggestions = [item.model_dump(mode="json") for item in outline.tool_suggestions]
+        steps = [step for step in draft_data.get("steps", []) if isinstance(step, dict)]
+
+        for index, step in enumerate(steps):
+            step_text = client.generate_text(
+                prompt,
+                {
+                    **payload,
+                    "generation_mode": "expand_step",
+                    "current_draft": draft_data,
+                    "target_step_index": index,
+                    "target_step": step,
+                    "generation_instruction": (
+                        "只扩写 target_step。输出 JSON：{\"step\": {...}, \"warnings\": [], "
+                        "\"tool_suggestions\": []}。step 必须包含 step_id、name、instruction、"
+                        "expected_user_info、allowed_actions。不要输出完整技能。"
+                    ),
+                },
+            )
+            try:
+                step_raw = _raw_json_from_text(step_text)
+                step_data = step_raw.get("step") if isinstance(step_raw.get("step"), dict) else step_raw
+                steps[index] = SkillStep.model_validate(step_data).model_dump(mode="json")
+                warnings.extend(str(item) for item in step_raw.get("warnings", []) if str(item).strip())
+                if isinstance(step_raw.get("tool_suggestions"), list):
+                    tool_suggestions.extend(item for item in step_raw["tool_suggestions"] if isinstance(item, dict))
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                warnings.append(f"模型未能扩写步骤 {index + 1}，已保留大纲步骤：{exc}")
+
+        draft_data["steps"] = steps
+        reviewed = self._normalize_response(
+            {"draft_skill": draft_data, "warnings": warnings, "tool_suggestions": tool_suggestions},
+            request,
+        )
+        review_text = client.generate_text(
+            prompt,
+            {
+                **payload,
+                "generation_mode": "final_review",
+                "current_draft": reviewed.draft_skill.model_dump(mode="json"),
+                "generation_instruction": (
+                    "检查 current_draft 是否遗漏原始流程、闭环回复、工具建议或中断策略。"
+                    "如需修正，返回完整 draft_skill；如果无需修正，也返回完整 draft_skill。只输出 JSON。"
+                ),
+            },
+        )
+        try:
+            return self._response_from_text(review_text, request)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return reviewed
 
     def _payload(self, request: SkillDistillRequest) -> dict[str, Any]:
         return {
@@ -417,6 +543,17 @@ def _extract_json(text: str) -> str:
     return stripped
 
 
+def _raw_json_from_text(text: str) -> dict[str, Any]:
+    raw = json.loads(_extract_json(text))
+    if not isinstance(raw, dict):
+        raise ValueError("模型输出不是 JSON object")
+    return raw
+
+
+def _serialize_response_for_stream(response: SkillDistillResponse) -> str:
+    return json.dumps(response.model_dump(mode="json"), ensure_ascii=False, indent=2)
+
+
 def _chunk_text(text: str, size: int = 18):
     for index in range(0, len(text), size):
         yield text[index : index + size]
@@ -559,13 +696,6 @@ def _normalize_tool_suggestions(
         suggestions.append(suggestion)
         seen.add(name)
 
-    for name in _mentioned_tool_names(_request_text(request)):
-        if name in seen:
-            continue
-        suggestion = _default_tool_suggestion(name, request, f"原始输入提到了工具 {name}，但当前工具配置中不存在。")
-        suggestions.append(suggestion)
-        seen.add(name)
-
     return suggestions
 
 
@@ -599,20 +729,6 @@ def _default_tool_suggestion(name: str, request: Any, reason: str) -> ToolSugges
         output_schema={"type": "object", "properties": {"success": {"type": "boolean"}, "data": {"type": "object"}}},
         reason=reason,
     )
-
-
-def _mentioned_tool_names(text: str) -> list[str]:
-    names: list[str] = []
-    patterns = [
-        r"(?:call_tool:|工具[:：]\s*|调用\s*|使用\s*|tool\s*[:=]\s*)([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+)",
-        r"`([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+)`",
-    ]
-    for pattern in patterns:
-        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
-            name = match.group(1).strip()
-            if name and name not in names:
-                names.append(name)
-    return names
 
 
 def _tool_method(value: Any, fallback: str = "POST") -> str:

@@ -298,6 +298,43 @@ def test_normalize_response_suggests_missing_tools_and_removes_unknown_actions()
     assert any("未配置工具 product.compare" in warning for warning in response.warnings)
 
 
+def test_normalize_response_does_not_suggest_tool_from_raw_text_only() -> None:
+    request = SkillDistillRequest(
+        tenant_id="tenant_demo",
+        title="商品比价",
+        raw_content="用户提供两个商品名称，使用 product.compare 工具查询价格并反馈比价结果",
+        available_tools=[],
+    )
+    raw = {
+        "draft_skill": {
+            "skill_id": "compare_products",
+            "name": "商品比价",
+            "required_info": ["product_name_1", "product_name_2"],
+            "steps": [
+                {
+                    "step_id": "collect",
+                    "name": "收集商品",
+                    "instruction": "收集两个商品名称。",
+                    "expected_user_info": ["product_name_1", "product_name_2"],
+                    "allowed_actions": ["ask_user"],
+                },
+                {
+                    "step_id": "reply_result",
+                    "name": "反馈结果",
+                    "instruction": "反馈比价结果。",
+                    "expected_user_info": [],
+                    "allowed_actions": ["answer_user"],
+                },
+            ],
+            "response_rules": [],
+        }
+    }
+
+    response = SkillDistiller()._normalize_response(raw, request)  # noqa: SLF001
+
+    assert response.tool_suggestions == []
+
+
 def test_skill_card_serializes_response_rules_before_steps() -> None:
     request = SkillDistillRequest(
         tenant_id="tenant_demo",
