@@ -22,10 +22,12 @@ class StepAgent:
         repair_context: dict[str, object] | None = None,
         recent_messages: list[dict[str, str]] | None = None,
         memory_context: list[dict[str, object]] | None = None,
+        conversation_context: dict[str, object] | None = None,
     ) -> StepAgentResult:
         payload = {
             "user_message": message,
             "recent_messages": recent_messages or [],
+            "conversation_context": conversation_context or {},
             "memory_context": memory_context or [],
             "active_skill": skill.content_json if skill else None,
             "active_step": _active_step(skill, session.active_step_id),

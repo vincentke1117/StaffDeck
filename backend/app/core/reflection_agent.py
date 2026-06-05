@@ -34,12 +34,14 @@ class ReflectionAgent:
         available_skills: list[Skill],
         available_tools: list[Tool],
         model_config: ModelConfig,
+        conversation_context: dict[str, object] | None = None,
     ) -> ReflectionDecision:
         if not _should_reflect(router_decision, step_result, tool_result):
             return ReflectionDecision()
 
         payload = {
             "user_message": message,
+            "conversation_context": conversation_context or {},
             "current_session": public_session(session).model_dump(),
             "active_skill": active_skill.content_json if active_skill else None,
             "router_decision": router_decision.model_dump(),

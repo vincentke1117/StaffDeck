@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
+from app.core.conversation_context import build_conversation_context
 from app.core.reflection_agent import ReflectionAgent, ReflectionDecision, tool_result_needs_reflection
 from app.core.response_generator import FALLBACK_REPLY, ResponseGenerator
 from app.core.router import Router
@@ -71,6 +72,7 @@ class PreparedTurn:
     step_result: StepAgentResult
     tool_result: ToolResult | None
     memory_context: list[dict[str, object]]
+    conversation_context: dict[str, object]
 
 
 class AgentLoop:
@@ -99,6 +101,7 @@ class AgentLoop:
             step_result = prepared.step_result
             tool_result = prepared.tool_result
             memory_context = prepared.memory_context
+            conversation_context = prepared.conversation_context
             reply = self._generate_reply_segment(
                 request.message,
                 chat_session,
@@ -109,6 +112,7 @@ class AgentLoop:
                 prepared.model_config,
                 self._get_persona_prompt(request.tenant_id),
                 memory_context,
+                conversation_context,
                 isolate_pending=self._should_isolate_pending_reply(
                     chat_session, prepared.active_skill, step_result, tool_result
                 ),
@@ -128,6 +132,7 @@ class AgentLoop:
                     prepared.model_config,
                     self._get_persona_prompt(request.tenant_id),
                     memory_context,
+                    conversation_context,
                 )
                 if extra_segments:
                     reply = "\n\n".join([reply, *extra_segments])
@@ -225,9 +230,12 @@ class AgentLoop:
                 )
             self.db.commit()
             self.db.refresh(chat_session)
+            conversation_context = self._conversation_context(chat_session)
 
             yield self._stream_status(chat_session, "routing", "正在判断用户意图")
-            router_decision = self.router.decide(request.message, chat_session, skills, model_config)
+            router_decision = self.router.decide(
+                request.message, chat_session, skills, model_config, conversation_context
+            )
             self.events.record(
                 request.tenant_id,
                 chat_session.id,
@@ -267,6 +275,7 @@ class AgentLoop:
                 model_config,
                 router_decision,
                 memory_context,
+                conversation_context,
                 repair_stream_events,
             )
             self.db.commit()
@@ -313,6 +322,7 @@ class AgentLoop:
                 step_result,
                 tool_result,
                 reflection_max_rounds,
+                conversation_context,
                 reflection_stream_events,
             )
             for event_name, payload in reflection_stream_events:
@@ -330,6 +340,7 @@ class AgentLoop:
                 model_config,
                 persona_prompt,
                 memory_context,
+                conversation_context,
                 isolate_pending=self._should_isolate_pending_reply(
                     chat_session, active_skill, step_result, tool_result
                 ),
@@ -359,6 +370,7 @@ class AgentLoop:
                     model_config,
                     persona_prompt,
                     memory_context,
+                    conversation_context,
                     pending_stream_events,
                 )
                 for event_name, payload in pending_stream_events:
@@ -512,9 +524,12 @@ class AgentLoop:
             )
         self.db.commit()
         self.db.refresh(chat_session)
+        conversation_context = self._conversation_context(chat_session)
 
         status("routing")
-        router_decision = self.router.decide(request.message, chat_session, skills, model_config)
+        router_decision = self.router.decide(
+            request.message, chat_session, skills, model_config, conversation_context
+        )
         self.events.record(
             request.tenant_id,
             chat_session.id,
@@ -535,7 +550,14 @@ class AgentLoop:
             {"active_skill_id": chat_session.active_skill_id, "active_step_id": chat_session.active_step_id},
         )
         step_result = self._run_step_agent_with_context_repair(
-            request, chat_session, active_skill, tools, model_config, router_decision, memory_context
+            request,
+            chat_session,
+            active_skill,
+            tools,
+            model_config,
+            router_decision,
+            memory_context,
+            conversation_context,
         )
 
         tool_result: ToolResult | None = None
@@ -568,6 +590,7 @@ class AgentLoop:
             step_result,
             tool_result,
             self._get_reflection_max_rounds(request.tenant_id),
+            conversation_context,
         )
 
         return PreparedTurn(
@@ -578,6 +601,7 @@ class AgentLoop:
             step_result=step_result,
             tool_result=tool_result,
             memory_context=memory_context,
+            conversation_context=conversation_context,
         )
 
     def _finalize_execution_after_reply(
@@ -605,6 +629,7 @@ class AgentLoop:
         model_config: ModelConfig,
         persona_prompt: str | None,
         memory_context: list[dict[str, object]],
+        conversation_context: dict[str, object],
         stream_events: list[tuple[str, dict[str, object]]] | None = None,
     ) -> tuple[list[str], tuple[RouterDecision, StepAgentResult, ToolResult | None] | None]:
         segments: list[str] = []
@@ -677,6 +702,7 @@ class AgentLoop:
                 model_config,
                 pending_decision,
                 memory_context,
+                conversation_context,
                 repair_stream_events,
             )
             self.db.commit()
@@ -716,6 +742,7 @@ class AgentLoop:
                 step_result,
                 tool_result,
                 self._get_reflection_max_rounds(request.tenant_id),
+                conversation_context,
                 reflection_stream_events,
             )
             if stream_events is not None:
@@ -731,6 +758,7 @@ class AgentLoop:
                 model_config,
                 persona_prompt,
                 memory_context,
+                conversation_context,
             )
             if segment:
                 segments.append(segment)
@@ -770,6 +798,7 @@ class AgentLoop:
         model_config: ModelConfig,
         persona_prompt: str | None,
         memory_context: list[dict[str, object]],
+        conversation_context: dict[str, object],
         isolate_pending: bool = False,
     ) -> str:
         if not isolate_pending:
@@ -783,6 +812,7 @@ class AgentLoop:
                 model_config,
                 persona_prompt,
                 memory_context,
+                conversation_context,
             )
         saved_pending = chat_session.pending_tasks_json
         saved_last_question = chat_session.last_agent_question
@@ -799,6 +829,7 @@ class AgentLoop:
                 model_config,
                 persona_prompt,
                 memory_context,
+                conversation_context,
             )
         finally:
             chat_session.pending_tasks_json = saved_pending
@@ -815,6 +846,7 @@ class AgentLoop:
         model_config: ModelConfig,
         persona_prompt: str | None,
         memory_context: list[dict[str, object]],
+        conversation_context: dict[str, object],
         isolate_pending: bool = False,
     ) -> Iterator[str]:
         if not isolate_pending:
@@ -828,6 +860,7 @@ class AgentLoop:
                 model_config,
                 persona_prompt,
                 memory_context,
+                conversation_context,
             )
             return
         saved_pending = chat_session.pending_tasks_json
@@ -845,6 +878,7 @@ class AgentLoop:
                 model_config,
                 persona_prompt,
                 memory_context,
+                conversation_context,
             )
         finally:
             chat_session.pending_tasks_json = saved_pending
@@ -862,8 +896,10 @@ class AgentLoop:
         step_result: StepAgentResult,
         tool_result: ToolResult | None,
         max_rounds: int,
+        conversation_context: dict[str, object] | None = None,
         stream_events: list[tuple[str, dict[str, object]]] | None = None,
     ) -> tuple[Skill | None, RouterDecision, StepAgentResult, ToolResult | None]:
+        conversation_context = conversation_context or self._conversation_context(chat_session)
         rounds = max(0, min(max_rounds, REFLECTION_MAX_ROUNDS_LIMIT))
         if rounds <= 0:
             if self._should_try_reflection(router_decision, step_result, tool_result):
@@ -913,6 +949,7 @@ class AgentLoop:
                 router_decision,
                 step_result,
                 tool_result,
+                conversation_context,
                 stream_events,
             )
             if not retried:
@@ -930,8 +967,10 @@ class AgentLoop:
         router_decision: RouterDecision,
         step_result: StepAgentResult,
         tool_result: ToolResult | None,
+        conversation_context: dict[str, object] | None = None,
         stream_events: list[tuple[str, dict[str, object]]] | None = None,
     ) -> tuple[Skill | None, RouterDecision, StepAgentResult, ToolResult | None, bool]:
+        conversation_context = conversation_context or self._conversation_context(chat_session)
         if not self._should_try_reflection(router_decision, step_result, tool_result):
             return active_skill, router_decision, step_result, tool_result, False
 
@@ -946,6 +985,7 @@ class AgentLoop:
                 skills,
                 tools,
                 model_config,
+                conversation_context,
             )
         except LLMError as exc:
             self.events.record(
@@ -1008,6 +1048,7 @@ class AgentLoop:
                 tools,
                 retry_router_decision,
                 model_config,
+                conversation_context,
                 stream_events,
             )
             return (*retry_result, True)
@@ -1095,6 +1136,7 @@ class AgentLoop:
         tools: list[Tool],
         router_decision: RouterDecision,
         model_config: ModelConfig,
+        conversation_context: dict[str, object],
         stream_events: list[tuple[str, dict[str, object]]] | None = None,
     ) -> tuple[Skill | None, RouterDecision, StepAgentResult, ToolResult | None]:
         self.events.record(
@@ -1155,6 +1197,7 @@ class AgentLoop:
             tools,
             model_config,
             router_decision,
+            conversation_context=conversation_context,
             stream_events=stream_events,
         )
         self.db.commit()
@@ -1384,8 +1427,10 @@ class AgentLoop:
         model_config: ModelConfig,
         router_decision: RouterDecision,
         memory_context: list[dict[str, object]] | None = None,
+        conversation_context: dict[str, object] | None = None,
         stream_events: list[tuple[str, dict[str, object]]] | None = None,
     ) -> StepAgentResult:
+        conversation_context = conversation_context or self._conversation_context(chat_session)
         step_result = self._run_step_agent_once(
             request,
             chat_session,
@@ -1394,6 +1439,7 @@ class AgentLoop:
             model_config,
             router_decision,
             memory_context=memory_context,
+            conversation_context=conversation_context,
         )
         self._apply_step_result(request.tenant_id, chat_session, step_result)
         step_result = self._retry_slot_validation_if_needed(
@@ -1405,6 +1451,7 @@ class AgentLoop:
             router_decision,
             step_result,
             memory_context,
+            conversation_context,
         )
 
         advanced = self._advance_past_satisfied_collection_steps(
@@ -1433,6 +1480,7 @@ class AgentLoop:
                 router_decision,
                 repair_reason="satisfied_step_advanced",
                 memory_context=memory_context,
+                conversation_context=conversation_context,
             )
             self._apply_step_result(request.tenant_id, chat_session, step_result)
             self._advance_past_satisfied_collection_steps(
@@ -1472,6 +1520,7 @@ class AgentLoop:
         router_decision: RouterDecision,
         step_result: StepAgentResult,
         memory_context: list[dict[str, object]] | None = None,
+        conversation_context: dict[str, object] | None = None,
     ) -> StepAgentResult:
         missing_fields = self._missing_expected_fields(active_skill, chat_session)
         if (
@@ -1497,6 +1546,7 @@ class AgentLoop:
                 "previous_step_result": step_result.model_dump(mode="json"),
             },
             memory_context=memory_context,
+            conversation_context=conversation_context,
         )
         if not self._step_result_has_progress(validation_result):
             return step_result
@@ -1574,7 +1624,14 @@ class AgentLoop:
         repair_reason: str | None = None,
         repair_context: dict[str, object] | None = None,
         memory_context: list[dict[str, object]] | None = None,
+        conversation_context: dict[str, object] | None = None,
     ) -> StepAgentResult:
+        conversation_context = conversation_context or self._conversation_context(chat_session)
+        recent_messages = [
+            message
+            for message in conversation_context.get("messages", [])
+            if isinstance(message, dict) and message.get("role") in {"user", "assistant"}
+        ]
         step_result = self.step_agent.run(
             request.message,
             chat_session,
@@ -1583,8 +1640,9 @@ class AgentLoop:
             model_config,
             router_decision,
             repair_context,
-            self._recent_messages(chat_session),
+            recent_messages,
             memory_context,
+            conversation_context,
         )
         payload = step_result.model_dump()
         if repair_reason:
@@ -2193,6 +2251,18 @@ class AgentLoop:
         )
         rows.reverse()
         return [{"role": row.role, "content": row.content} for row in rows]
+
+    def _conversation_context(self, chat_session: ChatSession) -> dict[str, object]:
+        if not hasattr(self, "db") or not hasattr(self.db, "exec"):
+            return build_conversation_context([])
+        rows = list(
+            self.db.exec(
+                select(Message)
+                .where(Message.tenant_id == chat_session.tenant_id, Message.session_id == chat_session.id)
+                .order_by(Message.created_at.asc())
+            ).all()
+        )
+        return build_conversation_context([{"role": row.role, "content": row.content} for row in rows])
 
     def _append_message(self, tenant_id: str, session_id: str, role: str, content: str) -> None:
         self.db.add(Message(tenant_id=tenant_id, session_id=session_id, role=role, content=content))

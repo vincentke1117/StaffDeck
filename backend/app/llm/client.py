@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+import copy
 import json
 from typing import Any
 
@@ -25,12 +26,14 @@ class LLMClient:
         self.max_output_tokens = model_config.max_output_tokens
 
     def generate_text(self, system_prompt: str, user_payload: dict[str, Any]) -> str:
-        serialized = json.dumps(user_payload, ensure_ascii=False)
+        context_messages, serialized_payload = _project_context_messages(user_payload)
+        serialized = json.dumps(serialized_payload, ensure_ascii=False)
         try:
             completion = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
+                    *context_messages,
                     {"role": "user", "content": serialized},
                 ],
                 temperature=self.temperature,
@@ -46,12 +49,14 @@ class LLMClient:
             raise LLMError(str(exc)) from exc
 
     def generate_text_stream(self, system_prompt: str, user_payload: dict[str, Any]) -> Iterator[str]:
-        serialized = json.dumps(user_payload, ensure_ascii=False)
+        context_messages, serialized_payload = _project_context_messages(user_payload)
+        serialized = json.dumps(serialized_payload, ensure_ascii=False)
         try:
             stream = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
+                    *context_messages,
                     {"role": "user", "content": serialized},
                 ],
                 temperature=self.temperature,
@@ -95,3 +100,23 @@ def _extract_json(text: str) -> str:
     if start >= 0 and end >= start:
         return stripped[start : end + 1]
     return stripped
+
+
+def _project_context_messages(user_payload: dict[str, Any]) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    payload = copy.deepcopy(user_payload)
+    context = payload.get("conversation_context")
+    if not isinstance(context, dict):
+        return [], payload
+    messages = context.pop("messages", [])
+    if not isinstance(messages, list):
+        return [], payload
+    projected: list[dict[str, str]] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "").strip()
+        content = str(message.get("content") or "").strip()
+        if role not in {"system", "user", "assistant"} or not content:
+            continue
+        projected.append({"role": role, "content": content})
+    return projected, payload

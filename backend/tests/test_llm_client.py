@@ -47,6 +47,40 @@ def test_generate_text_uses_chat_completions_only():
     assert call["max_tokens"] == 256
 
 
+def test_generate_text_projects_conversation_context_messages():
+    client = object.__new__(LLMClient)
+    client.client = _FakeOpenAIClient()
+    client.model = "demo-model"
+    client.temperature = 0.2
+    client.max_output_tokens = 256
+
+    output = client.generate_text(
+        "system prompt",
+        {
+            "user_message": "买两个",
+            "conversation_context": {
+                "messages": [
+                    {"role": "user", "content": "我是 hx，我要买 A2"},
+                    {"role": "assistant", "content": "请问买几个？"},
+                    {"role": "user", "content": "买两个"},
+                ],
+                "metadata": {"total_messages": 3},
+            },
+        },
+    )
+
+    assert output == "ok"
+    call = client.client.chat.completions.calls[0]
+    assert call["messages"][:4] == [
+        {"role": "system", "content": "system prompt"},
+        {"role": "user", "content": "我是 hx，我要买 A2"},
+        {"role": "assistant", "content": "请问买几个？"},
+        {"role": "user", "content": "买两个"},
+    ]
+    assert '"messages":' not in call["messages"][-1]["content"]
+    assert '"metadata": {"total_messages": 3}' in call["messages"][-1]["content"]
+
+
 def test_generate_json_extracts_fenced_json(monkeypatch):
     client = object.__new__(LLMClient)
 

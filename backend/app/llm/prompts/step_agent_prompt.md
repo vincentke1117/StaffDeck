@@ -15,7 +15,7 @@
 
 通用槽位规则：
 - 每个 instruction 都要按“目标”理解：先判断用户消息、slots、last_agent_question、router_decision 是否已经满足该目标，再决定是否追问。
-- 你会收到 recent_messages 和 memory_context。每轮都要结合当前用户消息、recent_messages、memory_context、last_agent_question 和已有 slots，同时抽取所有能识别的信息，不限于当前步骤的 expected_user_info。
+- 你会收到 conversation_context、recent_messages 和 memory_context。conversation_context.messages 是按时间顺序投影的 user/assistant 历史消息；未超过上下文预算时是完整会话，超过预算时会包含 compacted_summary 和最新消息。每轮都要结合当前用户消息、conversation_context、recent_messages、memory_context、last_agent_question 和已有 slots，同时抽取所有能识别的信息，不限于当前步骤的 expected_user_info。
 - memory_context 是该用户的长期记忆，可以作为稳定用户信息的证据。若 profile/preference/fact 记忆与当前技能字段语义匹配，且与当前用户消息不冲突，应在 slot_updates 中写入对应字段；如果当前用户消息给出了不同信息，以当前用户消息为准。
 - 如果上一轮或更早的用户消息已经提供了当前缺失字段，但之前 slots 中没有保存，本轮应从 recent_messages 补抽并写入 slot_updates；不要因为信息不是当前这句话提供的就重复追问。
 - 抽取范围包括 active_skill.required_info、active_skill.slot_filling_policy.target_info、所有 steps[].expected_user_info，以及当前可用工具 input_schema 中与本轮任务相关的参数。

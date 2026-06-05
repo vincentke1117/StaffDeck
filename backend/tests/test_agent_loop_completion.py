@@ -1,6 +1,6 @@
 from app.core.agent_loop import AgentLoop
 from app.core.skill_runtime import SkillRuntime
-from app.db.models import ChatSession, Skill, Tool
+from app.db.models import ChatSession, Message, Skill, Tool
 from app.session.session_schema import RouterDecision, StepAgentResult
 from app.tools.tool_schema import ToolCall, ToolResult
 
@@ -27,6 +27,23 @@ class FakeDb:
 
     def refresh(self, row: object) -> None:
         self.refreshed.append(row)
+
+
+class FakeExecResult:
+    def __init__(self, rows: list[object]) -> None:
+        self.rows = rows
+
+    def all(self) -> list[object]:
+        return self.rows
+
+
+class FakeMessageDb(FakeDb):
+    def __init__(self, rows: list[Message]) -> None:
+        super().__init__()
+        self.rows = rows
+
+    def exec(self, _statement: object) -> FakeExecResult:
+        return FakeExecResult(self.rows)
 
 
 class FakeToolExecutor:
@@ -399,6 +416,41 @@ def test_model_slot_validation_retry_can_complete_missed_quantity() -> None:
         and payload.get("mode") == "slot_validation"
         for _, _, event_type, payload in loop.events.records
     )
+
+
+def test_step_agent_receives_full_conversation_context_within_budget() -> None:
+    rows = [
+        Message(
+            tenant_id="tenant_demo",
+            session_id="session_test",
+            role="user" if index % 2 == 0 else "assistant",
+            content=f"message {index}",
+        )
+        for index in range(16)
+    ]
+    loop = object.__new__(AgentLoop)
+    loop.db = FakeMessageDb(rows)
+    loop.events = FakeEvents()
+    loop.step_agent = _FakeStepAgent([StepAgentResult(reply="ok")])
+    session = ChatSession(id="session_test", tenant_id="tenant_demo")
+
+    loop._run_step_agent_once(
+        _request("message 15"),
+        session,
+        None,
+        [],
+        _model_config(),
+        RouterDecision(decision="clarify"),
+    )
+
+    args, _kwargs = loop.step_agent.call_args[0]
+    recent_messages = args[7]
+    conversation_context = args[9]
+    assert len(recent_messages) == 16
+    assert recent_messages[0]["content"] == "message 0"
+    assert recent_messages[-1]["content"] == "message 15"
+    assert conversation_context["metadata"]["compacted"] is False
+    assert conversation_context["metadata"]["total_messages"] == 16
 
 
 def test_model_slot_validation_retry_does_not_fill_without_model_progress() -> None:
@@ -804,8 +856,10 @@ class _FakeStepAgent:
     def __init__(self, results: list[StepAgentResult]) -> None:
         self.results = results
         self.calls = 0
+        self.call_args: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
     def run(self, *args: object, **kwargs: object) -> StepAgentResult:
+        self.call_args.append((args, kwargs))
         result = self.results[min(self.calls, len(self.results) - 1)]
         self.calls += 1
         return result

@@ -43,12 +43,22 @@ class ResponseGenerator:
         model_config: ModelConfig,
         persona_prompt: str | None = None,
         memory_context: list[dict[str, object]] | None = None,
+        conversation_context: dict[str, object] | None = None,
     ) -> str:
         static_reply = self._static_reply(message, session, router_decision, step_result, tool_result)
         if static_reply:
             return static_reply
 
-        payload = self._payload(message, session, skill, router_decision, step_result, tool_result, memory_context)
+        payload = self._payload(
+            message,
+            session,
+            skill,
+            router_decision,
+            step_result,
+            tool_result,
+            memory_context,
+            conversation_context,
+        )
         try:
             text = LLMClient(model_config).generate_text(self._system_prompt(persona_prompt), payload)
             reply = text.strip() or step_result.reply or FALLBACK_REPLY
@@ -67,13 +77,23 @@ class ResponseGenerator:
         model_config: ModelConfig,
         persona_prompt: str | None = None,
         memory_context: list[dict[str, object]] | None = None,
+        conversation_context: dict[str, object] | None = None,
     ) -> Iterator[str]:
         static_reply = self._static_reply(message, session, router_decision, step_result, tool_result)
         if static_reply:
             yield from self.chunk_text(static_reply)
             return
 
-        payload = self._payload(message, session, skill, router_decision, step_result, tool_result, memory_context)
+        payload = self._payload(
+            message,
+            session,
+            skill,
+            router_decision,
+            step_result,
+            tool_result,
+            memory_context,
+            conversation_context,
+        )
         try:
             stream = LLMClient(model_config).generate_text_stream(self._system_prompt(persona_prompt), payload)
             chunks = [chunk for chunk in stream]
@@ -121,9 +141,11 @@ class ResponseGenerator:
         step_result: StepAgentResult,
         tool_result: ToolResult | None,
         memory_context: list[dict[str, object]] | None = None,
+        conversation_context: dict[str, object] | None = None,
     ) -> dict[str, object]:
         return {
             "user_message": message,
+            "conversation_context": conversation_context or {},
             "session": {
                 "active_skill_id": session.active_skill_id,
                 "active_step_id": session.active_step_id,
