@@ -1714,7 +1714,7 @@ export default function DistillPage({ active = true, searchParamsOverride }: Dis
                             suggestion.status !== 'created' &&
                             suggestion.status !== 'rejected';
                           return (
-                            <div className={`skill-tool-suggestion ${canResolveSuggestion ? 'has-actions' : ''}`} key={`${item.id}_${suggestion.name}`}>
+                            <div className="skill-tool-suggestion" key={`${item.id}_${suggestion.name}`}>
                               <div className="skill-tool-suggestion-main">
                                 <div className="skill-tool-suggestion-head">
                                   <div className="skill-tool-suggestion-title">{toolSuggestionTitle(suggestion)}</div>
@@ -1740,30 +1740,30 @@ export default function DistillPage({ active = true, searchParamsOverride }: Dis
                                     onClick={() => openToolDetail(item.id, suggestion)}
                                   />
                                 </Tooltip>
+                                {canResolveSuggestion && (
+                                  <>
+                                    <Tooltip title="确认新增">
+                                      <Button
+                                        className="skill-tool-action confirm"
+                                        size="small"
+                                        type="text"
+                                        disabled={!suggestion.probe_result?.success}
+                                        icon={<CheckCircleOutlined />}
+                                        onClick={() => void confirmToolSuggestion(item.id, suggestion)}
+                                      />
+                                    </Tooltip>
+                                    <Tooltip title="拒绝">
+                                      <Button
+                                        className="skill-tool-action reject"
+                                        size="small"
+                                        type="text"
+                                        icon={<CloseCircleOutlined />}
+                                        onClick={() => rejectToolSuggestion(item.id, suggestion.name)}
+                                      />
+                                    </Tooltip>
+                                  </>
+                                )}
                               </div>
-                              {canResolveSuggestion && (
-                                <div className="skill-tool-suggestion-actions bottom">
-                                  <Tooltip title="确认新增">
-                                    <Button
-                                      className="skill-tool-action confirm"
-                                      size="small"
-                                      type="text"
-                                      disabled={!suggestion.probe_result?.success}
-                                      icon={<CheckCircleOutlined />}
-                                      onClick={() => void confirmToolSuggestion(item.id, suggestion)}
-                                    />
-                                  </Tooltip>
-                                  <Tooltip title="拒绝">
-                                    <Button
-                                      className="skill-tool-action reject"
-                                      size="small"
-                                      type="text"
-                                      icon={<CloseCircleOutlined />}
-                                      onClick={() => rejectToolSuggestion(item.id, suggestion.name)}
-                                    />
-                                  </Tooltip>
-                                </div>
-                              )}
                             </div>
                           );
                         })}

@@ -1116,12 +1116,7 @@ body.skill-distill-fixed .content {
 
 .skill-tool-suggestion-main {
   min-width: 0;
-  padding-right: 72px;
-  padding-bottom: 0;
-}
-
-.skill-tool-suggestion.has-actions .skill-tool-suggestion-main {
-  padding-bottom: 34px;
+  padding-right: 118px;
 }
 
 .skill-tool-suggestion-head {
@@ -1231,13 +1226,6 @@ body.skill-distill-fixed .content {
 
 .skill-tool-suggestion-actions.top {
   top: 10px;
-}
-
-.skill-tool-suggestion-actions.bottom {
-  right: 12px;
-  bottom: 8px;
-  gap: 10px;
-  padding: 3px 8px;
 }
 
 .skill-tool-action.ant-btn {
