@@ -2422,41 +2422,114 @@ function EditableSourceActionLine({
   toolStatuses: ToolStatusMap;
   onChange: (value: string) => void;
 }) {
-  const [editing, setEditing] = useState(false);
   return (
     <div className="skill-source-line">
       <span className="skill-source-key">{fieldLabel('allowed_actions')}</span>
       <span className="skill-source-value">
         <EditableSourceField>
-          <div
-            className={`skill-source-action-editor ${editing ? 'editing' : ''}`}
-            onClick={() => setEditing(true)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                setEditing(true);
-              }
-            }}
-          >
-            {editing ? (
-              <Input.TextArea
-                className="skill-source-edit-input"
-                value={values.join('\n')}
-                autoFocus
-                autoSize={{ minRows: 1, maxRows: 8 }}
-                onChange={(event) => onChange(event.target.value)}
-              />
-            ) : (
-              <>
-                <ActionList actions={values} toolDescriptions={toolDescriptions} toolStatuses={toolStatuses} />
-                <span className="skill-source-edit-hint">点击修改</span>
-              </>
-            )}
-          </div>
+          <EditableActionList
+            actions={values}
+            toolDescriptions={toolDescriptions}
+            toolStatuses={toolStatuses}
+            onChange={onChange}
+          />
         </EditableSourceField>
       </span>
+    </div>
+  );
+}
+
+function EditableActionList({
+  actions,
+  toolDescriptions,
+  toolStatuses,
+  onChange,
+}: {
+  actions: string[];
+  toolDescriptions: ToolDescriptionMap;
+  toolStatuses: ToolStatusMap;
+  onChange: (value: string) => void;
+}) {
+  const [editingAction, setEditingAction] = useState<{ index: number; value: string } | null>(null);
+
+  function beginEdit(index: number, value: string) {
+    setEditingAction({ index, value });
+  }
+
+  function commitEdit() {
+    if (!editingAction) return;
+    const next = [...actions];
+    const nextValue = editingAction.value.trim();
+    if (editingAction.index >= next.length) {
+      if (nextValue) next.push(nextValue);
+    } else if (nextValue) {
+      next[editingAction.index] = nextValue;
+    } else {
+      next.splice(editingAction.index, 1);
+    }
+    onChange(next.join('\n'));
+    setEditingAction(null);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      commitEdit();
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setEditingAction(null);
+    }
+  }
+
+  if (actions.length === 0 && !editingAction) {
+    return (
+      <button type="button" className="skill-source-action-add" onClick={() => beginEdit(0, '')}>
+        点击新增动作
+      </button>
+    );
+  }
+
+  return (
+    <div className="skill-source-action-editor">
+      <div className="skill-action-list editable">
+        {actions.map((action, index) =>
+          editingAction?.index === index ? (
+            <Input
+              key={`editing_${index}`}
+              className="skill-source-action-input"
+              value={editingAction.value}
+              autoFocus
+              onBlur={commitEdit}
+              onChange={(event) => setEditingAction({ index, value: event.target.value })}
+              onKeyDown={handleKeyDown}
+            />
+          ) : (
+            <button
+              type="button"
+              className="skill-source-action-edit-button"
+              key={`${action}_${index}`}
+              onClick={() => beginEdit(index, action)}
+            >
+              <ActionChip action={action} toolDescriptions={toolDescriptions} toolStatuses={toolStatuses} />
+            </button>
+          ),
+        )}
+        {editingAction && editingAction.index >= actions.length && (
+          <Input
+            className="skill-source-action-input"
+            value={editingAction.value}
+            autoFocus
+            onBlur={commitEdit}
+            onChange={(event) => setEditingAction({ index: editingAction.index, value: event.target.value })}
+            onKeyDown={handleKeyDown}
+          />
+        )}
+        <button type="button" className="skill-source-action-add" onClick={() => beginEdit(actions.length, '')}>
+          +
+        </button>
+      </div>
+      <span className="skill-source-edit-hint">点击单个动作修改</span>
     </div>
   );
 }
