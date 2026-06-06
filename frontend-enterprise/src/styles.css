@@ -693,12 +693,14 @@ body.skill-distill-fixed .content {
 .skill-chat-panel {
   position: relative;
   height: 100%;
+  min-width: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 14px;
 }
 
 .skill-chat-messages {
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   padding: 22px 22px 18px;
@@ -708,6 +710,7 @@ body.skill-distill-fixed .content {
 }
 
 .skill-chat-row {
+  min-width: 0;
   display: flex;
   margin-bottom: 16px;
 }
@@ -719,7 +722,9 @@ body.skill-distill-fixed .content {
 
 .skill-chat-bubble {
   position: relative;
+  min-width: 0;
   max-width: min(720px, 86%);
+  box-sizing: border-box;
   padding: 13px 15px;
   color: var(--foreground);
   background: var(--surface);
@@ -732,7 +737,10 @@ body.skill-distill-fixed .content {
 }
 
 .skill-chat-content {
+  min-width: 0;
+  max-width: 100%;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .skill-chat-attachments {
@@ -946,6 +954,8 @@ body.skill-distill-fixed .content {
 }
 
 .skill-chat-thinking-block {
+  min-width: 0;
+  max-width: 100%;
   margin-bottom: 10px;
 }
 
@@ -973,6 +983,9 @@ body.skill-distill-fixed .content {
 }
 
 .skill-chat-thinking-details {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   margin: 10px 0 4px;
   padding: 10px 12px;
   display: grid;
@@ -988,6 +1001,8 @@ body.skill-distill-fixed .content {
 .skill-chat-thinking-detail {
   position: relative;
   padding-left: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .skill-chat-thinking-detail::before {
@@ -1124,10 +1139,16 @@ body.skill-distill-fixed .content {
   margin-top: 12px;
   display: grid;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .skill-tool-suggestion {
   position: relative;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 12px 12px 11px;
   background: #fffdf9;
   border: 1px solid var(--border);
@@ -1137,6 +1158,7 @@ body.skill-distill-fixed .content {
 
 .skill-tool-suggestion-main {
   min-width: 0;
+  max-width: 100%;
   padding-right: 118px;
 }
 
@@ -1197,9 +1219,11 @@ body.skill-distill-fixed .content {
 }
 
 .skill-tool-suggestion-desc {
+  min-width: 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .skill-tool-suggestion-meta {
@@ -1208,6 +1232,7 @@ body.skill-distill-fixed .content {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  max-width: 100%;
   color: var(--muted);
   font-size: 11px;
 }
@@ -1229,6 +1254,7 @@ body.skill-distill-fixed .content {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .skill-tool-suggestion-actions {
@@ -2129,6 +2155,30 @@ code {
   .skill-flow {
     height: min(680px, 72vh);
     min-height: 420px;
+  }
+
+  .skill-tool-suggestion-main {
+    padding-right: 0;
+  }
+
+  .skill-tool-suggestion-head {
+    flex-wrap: wrap;
+  }
+
+  .skill-tool-suggestion-title {
+    white-space: normal;
+  }
+
+  .skill-tool-suggestion-actions {
+    position: static;
+    width: max-content;
+    max-width: 100%;
+    margin-top: 10px;
+    margin-left: auto;
+  }
+
+  .skill-tool-suggestion-meta > span:not(.skill-tool-method) {
+    white-space: normal;
   }
 }
 
