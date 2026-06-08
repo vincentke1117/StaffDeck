@@ -432,6 +432,15 @@ body.skill-distill-fixed .content {
   padding: 0;
 }
 
+.general-skill-meta-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+  background: #fffefa;
+}
+
 .general-skill-source-input.ant-input {
   min-height: 520px;
   padding: 18px 20px;
@@ -2409,6 +2418,10 @@ code {
   }
 
   .general-run-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .general-skill-meta-form {
     grid-template-columns: minmax(0, 1fr);
   }
 

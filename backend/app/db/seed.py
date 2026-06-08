@@ -6,7 +6,6 @@ from sqlmodel import Session, select
 
 from app.config import get_settings
 from app.db.models import GeneralSkill, ModelConfig, PersonaConfig, Skill, Tenant, Tool, User, utc_now
-from app.general_skills.parser import parse_skill_markdown
 from app.security.encryption import encrypt_secret
 from app.security.auth import hash_password
 
@@ -430,21 +429,24 @@ def _seed_weather_general_skill(session: Session) -> None:
     if not source.exists():
         return
     try:
-        parsed = parse_skill_markdown(source.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        markdown = source.read_text(encoding="utf-8").strip()
+    except OSError:
         return
+    if not markdown:
+        return
+    slug = "weather-zh"
     existing = session.exec(
         select(GeneralSkill).where(
             GeneralSkill.tenant_id == "tenant_demo",
-            GeneralSkill.slug == parsed.slug,
+            GeneralSkill.slug == slug,
         )
     ).first()
     if existing:
-        if existing.skill_markdown != parsed.markdown or existing.status != "published":
-            existing.name = parsed.name
-            existing.description = parsed.description
-            existing.homepage = parsed.homepage
-            existing.skill_markdown = parsed.markdown
+        if existing.skill_markdown != markdown or existing.status != "published":
+            existing.name = existing.name or "中国城市天气"
+            existing.description = existing.description or "中国城市天气查询工具"
+            existing.homepage = existing.homepage or "https://www.weather.com.cn/"
+            existing.skill_markdown = markdown
             existing.status = "published"
             existing.permissions_json = existing.permissions_json or {"network": True, "python": True}
             existing.runtime_config_json = existing.runtime_config_json or {
@@ -456,11 +458,11 @@ def _seed_weather_general_skill(session: Session) -> None:
     session.add(
         GeneralSkill(
             tenant_id="tenant_demo",
-            slug=parsed.slug,
-            name=parsed.name,
-            description=parsed.description,
-            homepage=parsed.homepage,
-            skill_markdown=parsed.markdown,
+            slug=slug,
+            name="中国城市天气",
+            description="中国城市天气查询工具",
+            homepage="https://www.weather.com.cn/",
+            skill_markdown=markdown,
             status="published",
             permissions_json={"network": True, "python": True},
             runtime_config_json={"runtime": "python", "timeout_seconds": 12},

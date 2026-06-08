@@ -13,7 +13,6 @@ from sqlmodel import Session, select
 from app.db import get_session
 from app.db.models import GeneralSkill, ModelConfig, utc_now
 from app.general_skills import GeneralSkillImportRequest, GeneralSkillRead, GeneralSkillRunRequest, GeneralSkillRunResponse
-from app.general_skills.parser import parse_skill_markdown
 from app.general_skills.runner import GeneralSkillRunner
 from app.security.tenant import ensure_tenant
 
@@ -43,32 +42,45 @@ def import_general_skill(
     db: Session = Depends(get_session),
 ) -> GeneralSkillRead:
     ensure_tenant(db, request.tenant_id)
-    try:
-        parsed = parse_skill_markdown(request.markdown)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    name = _required_text(request.name, "name")
+    slug = _required_text(request.slug, "slug")
+    markdown = _required_text(request.markdown, "markdown")
+    description = _optional_text(request.description)
+    homepage = _optional_text(request.homepage)
+    _validate_slug(slug)
+    lookup_slug = _optional_text(request.original_slug) or slug
     row = db.exec(
         select(GeneralSkill).where(
             GeneralSkill.tenant_id == request.tenant_id,
-            GeneralSkill.slug == parsed.slug,
+            GeneralSkill.slug == lookup_slug,
         )
     ).first()
     now = utc_now()
     if row:
-        row.name = parsed.name
-        row.description = parsed.description
-        row.homepage = parsed.homepage
-        row.skill_markdown = parsed.markdown
+        if slug != row.slug:
+            conflict = db.exec(
+                select(GeneralSkill).where(
+                    GeneralSkill.tenant_id == request.tenant_id,
+                    GeneralSkill.slug == slug,
+                )
+            ).first()
+            if conflict:
+                raise HTTPException(status_code=409, detail="General skill slug already exists")
+        row.slug = slug
+        row.name = name
+        row.description = description
+        row.homepage = homepage
+        row.skill_markdown = markdown
         row.status = request.status
         row.updated_at = now
     else:
         row = GeneralSkill(
             tenant_id=request.tenant_id,
-            slug=parsed.slug,
-            name=parsed.name,
-            description=parsed.description,
-            homepage=parsed.homepage,
-            skill_markdown=parsed.markdown,
+            slug=slug,
+            name=name,
+            description=description,
+            homepage=homepage,
+            skill_markdown=markdown,
             status=request.status,
             permissions_json={"network": True, "python": True},
             runtime_config_json={"runtime": "python", "timeout_seconds": 12},
@@ -205,6 +217,23 @@ def _model_config_snapshot(row: ModelConfig) -> SimpleNamespace:
         temperature=row.temperature,
         max_output_tokens=row.max_output_tokens,
     )
+
+
+def _required_text(value: str | None, field: str) -> str:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail=f"General skill {field} cannot be empty")
+    return cleaned
+
+
+def _optional_text(value: str | None) -> str | None:
+    cleaned = (value or "").strip()
+    return cleaned or None
+
+
+def _validate_slug(value: str) -> None:
+    if any(char.isspace() for char in value) or "/" in value:
+        raise HTTPException(status_code=400, detail="General skill slug cannot contain spaces or slashes")
 
 
 def _sse(event: object, data: object) -> str:

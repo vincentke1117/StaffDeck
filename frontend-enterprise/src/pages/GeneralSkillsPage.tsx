@@ -14,16 +14,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, streamPost, TENANT_ID } from '../api/client';
 import type { GeneralSkillRead, GeneralSkillRunResponse } from '../types';
 
-const DEFAULT_MARKDOWN = `---
-name: 中国城市天气
-slug: weather-zh
-description: 中国城市天气查询工具
-homepage: https://www.weather.com.cn/
----
+const DEFAULT_MARKDOWN = `# 技能说明
 
-# 中国城市天气查询工具
+这里粘贴任意格式的通用技能文档。系统不会从文档中自动抽取名称、Slug 或描述；这些信息由上方表单维护。`;
 
-输入城市名称，查询城市天气。`;
+const DEFAULT_GENERAL_META = {
+  name: '中国城市天气',
+  slug: 'weather-zh',
+  description: '中国城市天气查询工具',
+  homepage: 'https://www.weather.com.cn/',
+};
 
 const PHASE_LABELS: Record<string, string> = {
   skill_loaded: '加载技能',
@@ -85,6 +85,10 @@ function resultSucceeded(result: Partial<GeneralSkillRunResponse> | null): boole
 export default function GeneralSkillsPage({ embedded = false }: { embedded?: boolean }) {
   const [rows, setRows] = useState<GeneralSkillRead[]>([]);
   const [markdown, setMarkdown] = useState(DEFAULT_MARKDOWN);
+  const [skillName, setSkillName] = useState(DEFAULT_GENERAL_META.name);
+  const [skillSlug, setSkillSlug] = useState(DEFAULT_GENERAL_META.slug);
+  const [skillDescription, setSkillDescription] = useState(DEFAULT_GENERAL_META.description);
+  const [skillHomepage, setSkillHomepage] = useState(DEFAULT_GENERAL_META.homepage);
   const [selectedSlug, setSelectedSlug] = useState<string>();
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
   const [query, setQuery] = useState('北京今天天气怎么样');
@@ -107,6 +111,10 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
           setSelectedSlug(items[0].slug);
           setEditingSlug(items[0].slug);
           setMarkdown(items[0].skill_markdown);
+          setSkillName(items[0].name);
+          setSkillSlug(items[0].slug);
+          setSkillDescription(items[0].description || '');
+          setSkillHomepage(items[0].homepage || '');
         }
       })
       .catch((error) => message.error(error.message));
@@ -120,10 +128,19 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
       message.warning('请先粘贴或上传 SKILL.md');
       return;
     }
+    if (!skillName.trim() || !skillSlug.trim()) {
+      message.warning('请填写通用技能名称和 Slug');
+      return;
+    }
     const row = await api.post<GeneralSkillRead>('/api/enterprise/general-skills/import', {
       tenant_id: TENANT_ID,
+      name: skillName.trim(),
+      slug: skillSlug.trim(),
+      description: skillDescription.trim() || undefined,
+      homepage: skillHomepage.trim() || undefined,
       markdown,
       status: 'published',
+      original_slug: editingSlug || undefined,
     });
     message.success(editingSlug ? `已保存 ${row.name}` : `已导入 ${row.name}`);
     setSelectedSlug(row.slug);
@@ -133,12 +150,20 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
 
   function newSkill() {
     setMarkdown(DEFAULT_MARKDOWN);
+    setSkillName('');
+    setSkillSlug('');
+    setSkillDescription('');
+    setSkillHomepage('');
     setEditingSlug(null);
     setRunResult(null);
   }
 
   function editSkill(row: GeneralSkillRead) {
     setMarkdown(row.skill_markdown);
+    setSkillName(row.name);
+    setSkillSlug(row.slug);
+    setSkillDescription(row.description || '');
+    setSkillHomepage(row.homepage || '');
     setSelectedSlug(row.slug);
     setEditingSlug(row.slug);
     setRunResult(null);
@@ -271,6 +296,28 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
               </Space>
             )}
           >
+            <div className="general-skill-meta-form">
+              <Input
+                value={skillName}
+                onChange={(event) => setSkillName(event.target.value)}
+                placeholder="技能名称，由用户填写"
+              />
+              <Input
+                value={skillSlug}
+                onChange={(event) => setSkillSlug(event.target.value)}
+                placeholder="Slug，由用户填写，用于路由和接口路径"
+              />
+              <Input
+                value={skillDescription}
+                onChange={(event) => setSkillDescription(event.target.value)}
+                placeholder="描述，用于模型选择技能"
+              />
+              <Input
+                value={skillHomepage}
+                onChange={(event) => setSkillHomepage(event.target.value)}
+                placeholder="主页或参考链接，可选"
+              />
+            </div>
             <Input.TextArea
               className="general-skill-source-input"
               value={markdown}

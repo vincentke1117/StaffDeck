@@ -7,8 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class GeneralSkillImportRequest(BaseModel):
     tenant_id: str
+    name: str
+    slug: str
+    description: Optional[str] = None
+    homepage: Optional[str] = None
     markdown: str
     status: str = "published"
+    original_slug: Optional[str] = None
 
 
 class GeneralSkillRead(BaseModel):

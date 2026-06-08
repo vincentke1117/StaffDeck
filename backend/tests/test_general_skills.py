@@ -4,7 +4,6 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from app.api.general_skills import import_general_skill, list_general_skills
 from app.core import AgentLoop
 from app.db.models import GeneralSkill, ModelConfig, Tenant, User
-from app.general_skills.parser import parse_skill_markdown
 from app.general_skills.runner import GeneralSkillRunner
 from app.general_skills.schema import GeneralSkillImportRequest
 from app.llm import LLMClient
@@ -13,39 +12,35 @@ from app.security.encryption import encrypt_secret
 from app.session.session_schema import ChatTurnRequest
 
 
-WEATHER_SKILL_MD = """---
-name: 中国城市天气
-slug: weather-zh
-description: 中国城市天气查询工具
-homepage: https://www.weather.com.cn/
----
-
-# 中国城市天气查询工具
+WEATHER_SKILL_MD = """# 中国城市天气查询工具
 
 python weather.py -json -today <地区名称>
 """
 
 
-def test_parse_skill_markdown_frontmatter() -> None:
-    parsed = parse_skill_markdown(WEATHER_SKILL_MD)
-
-    assert parsed.name == "中国城市天气"
-    assert parsed.slug == "weather-zh"
-    assert parsed.description == "中国城市天气查询工具"
-    assert parsed.homepage == "https://www.weather.com.cn/"
-
-
-def test_import_general_skill_upserts_by_slug() -> None:
+def test_import_general_skill_uses_user_supplied_metadata() -> None:
     with _test_session() as db:
         _seed_minimal_tenant(db)
 
         first = import_general_skill(
-            GeneralSkillImportRequest(tenant_id="tenant_demo", markdown=WEATHER_SKILL_MD),
+            GeneralSkillImportRequest(
+                tenant_id="tenant_demo",
+                name="用户填写天气技能",
+                slug="weather-zh",
+                description="用户填写描述",
+                homepage="https://example.com/weather",
+                markdown=WEATHER_SKILL_MD,
+            ),
             db,
         )
         second = import_general_skill(
             GeneralSkillImportRequest(
                 tenant_id="tenant_demo",
+                name="用户改名天气技能",
+                slug="weather-cn",
+                description="用户改写描述",
+                homepage="https://example.com/weather-cn",
+                original_slug="weather-zh",
                 markdown=WEATHER_SKILL_MD.replace("中国城市天气查询工具", "天气 demo"),
             ),
             db,
@@ -54,8 +49,11 @@ def test_import_general_skill_upserts_by_slug() -> None:
         rows = list_general_skills("tenant_demo", db)
         assert first.id == second.id
         assert len(rows) == 1
-        assert rows[0].slug == "weather-zh"
-        assert rows[0].description == "天气 demo"
+        assert rows[0].slug == "weather-cn"
+        assert rows[0].name == "用户改名天气技能"
+        assert rows[0].description == "用户改写描述"
+        assert rows[0].homepage == "https://example.com/weather-cn"
+        assert rows[0].skill_markdown.startswith("# 天气 demo")
 
 
 def test_chat_turn_uses_general_skill_before_scenario_router(monkeypatch) -> None:
