@@ -17,10 +17,11 @@ homepage: https://www.weather.com.cn/
 
 输入城市名称，查询城市天气。`;
 
-export default function GeneralSkillsPage() {
+export default function GeneralSkillsPage({ embedded = false }: { embedded?: boolean }) {
   const [rows, setRows] = useState<GeneralSkillRead[]>([]);
   const [markdown, setMarkdown] = useState(DEFAULT_MARKDOWN);
   const [selectedSlug, setSelectedSlug] = useState<string>();
+  const [editingSlug, setEditingSlug] = useState<string | null>(null);
   const [query, setQuery] = useState('北京今天天气怎么样');
   const [runResult, setRunResult] = useState<GeneralSkillRunResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -53,9 +54,23 @@ export default function GeneralSkillsPage() {
       markdown,
       status: 'published',
     });
-    message.success(`已导入 ${row.name}`);
+    message.success(editingSlug ? `已保存 ${row.name}` : `已导入 ${row.name}`);
     setSelectedSlug(row.slug);
+    setEditingSlug(row.slug);
     load();
+  }
+
+  function newSkill() {
+    setMarkdown(DEFAULT_MARKDOWN);
+    setEditingSlug(null);
+    setRunResult(null);
+  }
+
+  function editSkill(row: GeneralSkillRead) {
+    setMarkdown(row.skill_markdown);
+    setSelectedSlug(row.slug);
+    setEditingSlug(row.slug);
+    setRunResult(null);
   }
 
   async function runSkill() {
@@ -98,25 +113,33 @@ export default function GeneralSkillsPage() {
     { title: 'Slug', dataIndex: 'slug', width: 160, ellipsis: true },
     { title: '描述', dataIndex: 'description', ellipsis: true },
     { title: '状态', dataIndex: 'status', width: 100, render: (value) => <Tag color="green">{value}</Tag> },
+    {
+      title: '操作',
+      width: 96,
+      render: (_, row) => <Button size="small" onClick={() => editSkill(row)}>编辑</Button>,
+    },
   ];
 
   return (
     <>
-      <div className="page-title">
-        <Typography.Title level={3}>通用技能 Demo</Typography.Title>
-        <Typography.Text type="secondary">导入 PilotDeck 风格 SKILL.md，验证模型选择、代码生成与运行链路。</Typography.Text>
-      </div>
+      {!embedded && (
+        <div className="page-title">
+          <Typography.Title level={3}>通用技能 Demo</Typography.Title>
+          <Typography.Text type="secondary">导入 PilotDeck 风格 SKILL.md，验证模型选择、代码生成与运行链路。</Typography.Text>
+        </div>
+      )}
       <div className="grid-2">
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
           <Card
             className="editor-card"
-            title="导入 SKILL.md"
+            title={editingSlug ? `编辑通用技能：${editingSlug}` : '新增通用技能'}
             extra={(
               <Space>
+                <Button onClick={newSkill}>新建</Button>
                 <Upload beforeUpload={beforeUpload} showUploadList={false} accept=".md,.txt">
                   <Button icon={<UploadOutlined />}>选择文件</Button>
                 </Upload>
-                <Button type="primary" icon={<CloudOutlined />} onClick={importSkill}>导入并发布</Button>
+                <Button type="primary" icon={<CloudOutlined />} onClick={importSkill}>保存并发布</Button>
               </Space>
             )}
           >

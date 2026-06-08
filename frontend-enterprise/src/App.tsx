@@ -3,7 +3,6 @@ import {
   DashboardOutlined,
   DatabaseOutlined,
   DislikeOutlined,
-  ExperimentOutlined,
   MessageOutlined,
   ProfileOutlined,
   ToolOutlined,
@@ -66,7 +65,6 @@ function Shell() {
               children: [
                 { key: '/enterprise/skills', icon: <ProfileOutlined />, label: '技能管理' },
                 { key: '/enterprise/skills/distill', icon: <MessageOutlined />, label: '技能改写' },
-                { key: '/enterprise/general-skills', icon: <ExperimentOutlined />, label: '通用技能 Demo' },
                 { key: '/enterprise/tools', icon: <ToolOutlined />, label: '工具配置' },
               ],
             },

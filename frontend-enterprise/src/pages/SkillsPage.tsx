@@ -9,12 +9,13 @@ import {
   RollbackOutlined,
   StopOutlined,
 } from '@ant-design/icons';
-import { Button, Card, Col, Descriptions, Dropdown, Modal, Row, Segmented, Table, Tag, Typography, message } from 'antd';
+import { Button, Card, Col, Descriptions, Dropdown, Modal, Row, Segmented, Table, Tabs, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, TENANT_ID } from '../api/client';
 import type { SkillRead, SkillVersionRead } from '../types';
+import GeneralSkillsPage from './GeneralSkillsPage';
 
 const STATUS_LABELS: Record<SkillRead['status'], { text: string; color: string }> = {
   draft: { text: '草稿', color: 'blue' },
@@ -270,53 +271,77 @@ export default function SkillsPage() {
     <>
       <div className="page-title">
         <Typography.Title level={3}>技能管理</Typography.Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          新建
-        </Button>
       </div>
-      <Card className="data-card" title="技能列表">
-        <Table
-          rowKey="id"
-          columns={columns}
-          dataSource={rows}
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-          scroll={{ x: 1080 }}
-          size="middle"
-        />
-      </Card>
-      <Row gutter={[16, 16]} className="skill-rank-row">
-        <Col xs={24} lg={8}>
-          <RankingCard
-            title="调用排行榜"
-            rows={rankingRows.calls.slice(0, 5)}
-            value={(row) => `${row.total_call_count || 0} 次`}
-            onMore={() => setRankingModal({ mode: 'calls', scope: 'total' })}
-          />
-        </Col>
-        <Col xs={24} lg={8}>
-          <RankingCard
-            title="好评排行榜"
-            rows={positiveRankingRows.slice(0, 5)}
-            value={(row) => percent(positiveScope === 'current' ? row.positive_rate : row.total_positive_rate)}
-            version={(row) => rankingVersionText(row, positiveScope)}
-            scope={positiveScope}
-            onScopeChange={setPositiveScope}
-            onMore={() => setRankingModal({ mode: 'positive', scope: positiveScope })}
-          />
-        </Col>
-        <Col xs={24} lg={8}>
-          <RankingCard
-            title="差评排行榜"
-            rows={negativeRankingRows.slice(0, 5)}
-            value={(row) => percent(negativeScope === 'current' ? row.negative_rate : row.total_negative_rate)}
-            version={(row) => rankingVersionText(row, negativeScope)}
-            scope={negativeScope}
-            onScopeChange={setNegativeScope}
-            onMore={() => setRankingModal({ mode: 'negative', scope: negativeScope })}
-          />
-        </Col>
-      </Row>
+      <Tabs
+        className="skill-tabs"
+        defaultActiveKey="scenario"
+        items={[
+          {
+            key: 'scenario',
+            label: '场景化技能',
+            children: (
+              <>
+                <Card
+                  className="data-card"
+                  title="场景化技能列表"
+                  extra={(
+                    <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+                      新建
+                    </Button>
+                  )}
+                >
+                  <Table
+                    rowKey="id"
+                    columns={columns}
+                    dataSource={rows}
+                    loading={loading}
+                    pagination={{ pageSize: 10 }}
+                    scroll={{ x: 1080 }}
+                    size="middle"
+                  />
+                </Card>
+                <Row gutter={[16, 16]} className="skill-rank-row">
+                  <Col xs={24} lg={8}>
+                    <RankingCard
+                      title="调用排行榜"
+                      rows={rankingRows.calls.slice(0, 5)}
+                      value={(row) => `${row.total_call_count || 0} 次`}
+                      onMore={() => setRankingModal({ mode: 'calls', scope: 'total' })}
+                    />
+                  </Col>
+                  <Col xs={24} lg={8}>
+                    <RankingCard
+                      title="好评排行榜"
+                      rows={positiveRankingRows.slice(0, 5)}
+                      value={(row) => percent(positiveScope === 'current' ? row.positive_rate : row.total_positive_rate)}
+                      version={(row) => rankingVersionText(row, positiveScope)}
+                      scope={positiveScope}
+                      onScopeChange={setPositiveScope}
+                      onMore={() => setRankingModal({ mode: 'positive', scope: positiveScope })}
+                    />
+                  </Col>
+                  <Col xs={24} lg={8}>
+                    <RankingCard
+                      title="差评排行榜"
+                      rows={negativeRankingRows.slice(0, 5)}
+                      value={(row) => percent(negativeScope === 'current' ? row.negative_rate : row.total_negative_rate)}
+                      version={(row) => rankingVersionText(row, negativeScope)}
+                      scope={negativeScope}
+                      onScopeChange={setNegativeScope}
+                      onMore={() => setRankingModal({ mode: 'negative', scope: negativeScope })}
+                    />
+                  </Col>
+                </Row>
+              </>
+            ),
+          },
+          {
+            key: 'general',
+            label: '通用技能',
+            children: <GeneralSkillsPage embedded />,
+          },
+        ]}
+      />
       <Modal
         open={Boolean(rankingModal)}
         title={rankingModalTitle}
