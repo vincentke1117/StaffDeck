@@ -422,7 +422,8 @@ textarea,
   line-height: 0;
 }
 
-.session-title-icon .anticon {
+.session-title-icon .anticon,
+.session-chat-icon {
   display: inline-grid;
   width: 22px;
   height: 22px;
@@ -430,10 +431,20 @@ textarea,
   line-height: 0;
 }
 
-.session-title-icon .anticon svg {
+.session-title-icon .anticon svg,
+.session-chat-icon {
   display: block;
-  width: 18px;
-  height: 18px;
+  width: 21px;
+  height: 21px;
+}
+
+.session-chat-icon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.85;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform: translateY(-0.5px);
 }
 
 .session-title-text {
@@ -461,9 +472,10 @@ textarea,
   line-height: 1;
 }
 
-.chat-layout.sidebar-collapsed .session-title-icon .anticon svg {
-  width: 20px;
-  height: 20px;
+.chat-layout.sidebar-collapsed .session-title-icon .anticon svg,
+.chat-layout.sidebar-collapsed .session-chat-icon {
+  width: 23px;
+  height: 23px;
 }
 
 .chat-layout.sidebar-collapsed .session-title-text {
@@ -585,18 +597,45 @@ textarea,
 }
 
 .theme-toggle-icon {
-  display: inline-grid;
+  display: grid;
   place-items: center;
-  width: 1em;
-  height: 1em;
+  width: 100%;
+  height: 100%;
   color: inherit;
+  line-height: 0;
   transform-origin: center;
   animation: theme-icon-enter 300ms cubic-bezier(0.2, 0.8, 0.22, 1) both;
 }
 
+.theme-toggle-button .ant-btn-icon,
+.ant-btn.theme-toggle-button .ant-btn-icon {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  line-height: 0;
+}
+
 .theme-toggle-button .anticon,
 .ant-btn.theme-toggle-button .anticon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  line-height: 0;
   color: inherit !important;
+}
+
+.theme-toggle-button .anticon svg,
+.ant-btn.theme-toggle-button .anticon svg {
+  display: block;
+  width: 19px;
+  height: 19px;
+}
+
+.theme-toggle-button[data-mode='system'] .theme-toggle-icon .anticon svg,
+.ant-btn.theme-toggle-button[data-mode='system'] .theme-toggle-icon .anticon svg {
+  transform: translateY(-0.75px);
 }
 
 :root[data-theme='dark'] .theme-toggle-button,
@@ -1681,9 +1720,10 @@ textarea,
     line-height: 1;
   }
 
-  .session-title-icon .anticon svg {
-    width: 20px;
-    height: 20px;
+  .session-title-icon .anticon svg,
+  .session-chat-icon {
+    width: 23px;
+    height: 23px;
   }
 
   .session-title-text {

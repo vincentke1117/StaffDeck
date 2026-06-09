@@ -4,7 +4,6 @@ import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  MessageOutlined,
   PlusOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
@@ -15,6 +14,15 @@ import { useNavigate } from 'react-router-dom';
 import { api, clearAuthSession, getAuthSession } from '../api/client';
 import { ThemeToggleButton } from '../theme';
 import type { ChatSession } from '../types';
+
+function SessionChatIcon() {
+  return (
+    <svg className="session-chat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 4.2c-4.7 0-8.1 3.05-8.1 7.25 0 2.32 1.02 4.32 2.75 5.65l-.55 2.65 3.05-1.45c.9.26 1.9.4 2.95.4 4.7 0 8.1-3.05 8.1-7.25S16.7 4.2 12 4.2Z" />
+      <path d="M8.7 11.45h.04M12 11.45h.04M15.3 11.45h.04" />
+    </svg>
+  );
+}
 
 export default function SessionListPage() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -150,7 +158,8 @@ export default function SessionListPage() {
               <div className="session-card-content">
                 <div className="session-meta">
                   <div className="session-title" title={sessionTitle}>
-                    <MessageOutlined /> {sessionTitle}
+                    <span className="session-title-icon"><SessionChatIcon /></span>
+                    <span className="session-title-text">{sessionTitle}</span>
                   </div>
                   <div className="session-summary" title={sessionSummary}>
                     {sessionSummary}
