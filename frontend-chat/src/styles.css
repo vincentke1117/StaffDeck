@@ -47,6 +47,7 @@
   --code-boolean: #0000ff;
   --thinking-base: #8a918d;
   --thinking-focus: #2f3734;
+  --thinking-flow-duration: 4.4s;
 }
 
 :root[data-theme='dark'] {
@@ -991,7 +992,7 @@ textarea,
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: trace-text-flow 3.35s cubic-bezier(0.45, 0, 0.15, 1) infinite;
+  animation: trace-text-flow var(--thinking-flow-duration) cubic-bezier(0.45, 0, 0.15, 1) infinite;
 }
 
 .turn-trace-summary.completed .anticon:first-child,
@@ -1105,7 +1106,7 @@ textarea,
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: trace-text-flow 3.35s cubic-bezier(0.45, 0, 0.15, 1) infinite;
+  animation: trace-text-flow var(--thinking-flow-duration) cubic-bezier(0.45, 0, 0.15, 1) infinite;
 }
 
 @keyframes spin-soft {
@@ -1321,15 +1322,15 @@ textarea,
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: trace-text-flow 3.35s cubic-bezier(0.45, 0, 0.15, 1) infinite;
+  animation: trace-text-flow var(--thinking-flow-duration) cubic-bezier(0.45, 0, 0.15, 1) infinite;
 }
 
 @keyframes trace-text-flow {
   0%,
-  9% {
+  7% {
     background-position: 125% 0;
   }
-  43% {
+  55% {
     background-position: -45% 0;
   }
   100% {
