@@ -22,13 +22,15 @@ export default function App() {
       theme={{
         algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         token: {
-          colorPrimary: '#0f766e',
+          colorPrimary: isDark ? '#e4b976' : '#0f766e',
           borderRadius: 8,
-          colorBgBase: isDark ? '#111315' : '#fbfaf6',
-          colorBgContainer: isDark ? '#181b1a' : '#ffffff',
-          colorText: isDark ? '#e8e2d8' : '#20201d',
-          colorTextSecondary: isDark ? '#a7aaa5' : '#6d726e',
-          colorBorder: isDark ? '#303634' : '#ded7cc',
+          colorBgBase: isDark ? '#0f172a' : '#fbfaf6',
+          colorBgContainer: isDark ? '#111827' : '#ffffff',
+          colorBgElevated: isDark ? '#1e293b' : '#ffffff',
+          colorFillSecondary: isDark ? 'rgba(148, 163, 184, 0.16)' : '#f5f1eb',
+          colorText: isDark ? '#f8fafc' : '#20201d',
+          colorTextSecondary: isDark ? '#94a3b8' : '#6d726e',
+          colorBorder: isDark ? 'rgba(148, 163, 184, 0.24)' : '#ded7cc',
           fontFamily:
             '"Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif',
         },

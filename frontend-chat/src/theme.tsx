@@ -1,5 +1,5 @@
 import { DesktopOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons';
-import { Button, Tooltip } from 'antd';
+import { Button } from 'antd';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
@@ -103,19 +103,15 @@ export function ThemeToggleButton() {
     if (mode === 'system') return <DesktopOutlined />;
     return effectiveTheme === 'dark' ? <MoonOutlined /> : <SunOutlined />;
   }, [effectiveTheme, mode]);
-  const label = mode === 'system' ? `跟随系统（当前${effectiveTheme === 'dark' ? '深色' : '浅色'}）` : mode === 'dark' ? '深色主题' : '浅色主题';
-
   return (
-    <Tooltip title={`${label}，点击切换`}>
-      <Button
-        type="text"
-        className="theme-toggle-button"
-        data-mode={mode}
-        data-effective-theme={effectiveTheme}
-        icon={<span key={`${mode}-${effectiveTheme}`} className="theme-toggle-icon">{icon}</span>}
-        aria-label="切换主题"
-        onClick={cycleMode}
-      />
-    </Tooltip>
+    <Button
+      type="text"
+      className="theme-toggle-button"
+      data-mode={mode}
+      data-effective-theme={effectiveTheme}
+      icon={<span key={`${mode}-${effectiveTheme}`} className="theme-toggle-icon">{icon}</span>}
+      aria-label="切换主题"
+      onClick={cycleMode}
+    />
   );
 }
