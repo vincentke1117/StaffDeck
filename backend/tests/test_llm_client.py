@@ -92,6 +92,65 @@ def test_generate_json_extracts_fenced_json(monkeypatch):
     assert client.generate_json("prompt", {}) == {"decision": "continue_current_skill"}
 
 
+def test_generate_json_requests_json_object_mode():
+    client = object.__new__(LLMClient)
+    client.client = _FakeOpenAIClient()
+    client.model = "demo-model"
+    client.temperature = 0.2
+    client.max_output_tokens = 256
+    client.client.chat.completions.create = lambda **kwargs: (  # noqa: E731
+        client.client.chat.completions.calls.append(kwargs)
+        or type(
+            "Completion",
+            (),
+            {
+                "choices": [
+                    type(
+                        "Choice",
+                        (),
+                        {"message": type("Message", (), {"content": '{"ok": true}'})()},
+                    )()
+                ]
+            },
+        )()
+    )
+
+    assert client.generate_json("prompt", {}) == {"ok": True}
+    assert client.client.chat.completions.calls[0]["response_format"] == {"type": "json_object"}
+
+
+def test_generate_json_falls_back_when_json_object_mode_is_unsupported():
+    client = object.__new__(LLMClient)
+    client.client = _FakeOpenAIClient()
+    client.model = "demo-model"
+    client.temperature = 0.2
+    client.max_output_tokens = 256
+
+    def fake_create(**kwargs):  # noqa: ANN003
+        client.client.chat.completions.calls.append(kwargs)
+        if "response_format" in kwargs:
+            raise ValueError("Unsupported parameter: response_format")
+        return type(
+            "Completion",
+            (),
+            {
+                "choices": [
+                    type(
+                        "Choice",
+                        (),
+                        {"message": type("Message", (), {"content": '{"ok": true}'})()},
+                    )()
+                ]
+            },
+        )()
+
+    client.client.chat.completions.create = fake_create
+
+    assert client.generate_json("prompt", {}) == {"ok": True}
+    assert "response_format" in client.client.chat.completions.calls[0]
+    assert "response_format" not in client.client.chat.completions.calls[1]
+
+
 def test_generate_json_retries_invalid_json(monkeypatch):
     client = object.__new__(LLMClient)
     calls = iter(["not json", '{"ok": true}'])

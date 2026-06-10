@@ -28,19 +28,29 @@ class LLMClient:
         self.temperature = model_config.temperature
         self.max_output_tokens = model_config.max_output_tokens
 
-    def generate_text(self, system_prompt: str, user_payload: dict[str, Any]) -> str:
+    def generate_text(
+        self,
+        system_prompt: str,
+        user_payload: dict[str, Any],
+        response_format: dict[str, str] | None = None,
+    ) -> str:
         context_messages, serialized_payload = _project_context_messages(user_payload)
         serialized = json.dumps(serialized_payload, ensure_ascii=False)
         try:
-            completion = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
+            request: dict[str, Any] = {
+                "model": self.model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     *context_messages,
                     {"role": "user", "content": serialized},
                 ],
-                temperature=self.temperature,
-                max_tokens=self.max_output_tokens,
+                "temperature": self.temperature,
+                "max_tokens": self.max_output_tokens,
+            }
+            if response_format:
+                request["response_format"] = response_format
+            completion = self.client.chat.completions.create(
+                **request,
             )
             content = completion.choices[0].message.content
             if not content:
@@ -80,8 +90,12 @@ class LLMClient:
         outputs: list[str] = []
         next_payload = user_payload
         last_error: json.JSONDecodeError | None = None
+        json_mode_supported = True
         for attempt in range(JSON_REPAIR_ATTEMPTS + 1):
-            text = self.generate_text(system_prompt, next_payload)
+            text = self._generate_json_candidate(system_prompt, next_payload, json_mode_supported)
+            if json_mode_supported and _response_format_unsupported(text):
+                json_mode_supported = False
+                text = self.generate_text(system_prompt, next_payload)
             outputs.append(text)
             try:
                 return json.loads(_extract_json(text))
@@ -105,6 +119,28 @@ class LLMClient:
             f"Model did not return valid JSON after {JSON_REPAIR_ATTEMPTS} repair attempts; {previews}"
         ) from last_error
 
+    def _generate_json_candidate(
+        self,
+        system_prompt: str,
+        user_payload: dict[str, Any],
+        json_mode_supported: bool,
+    ) -> str:
+        if not json_mode_supported:
+            return self.generate_text(system_prompt, user_payload)
+        try:
+            return self.generate_text(
+                system_prompt,
+                user_payload,
+                response_format={"type": "json_object"},
+            )
+        except TypeError:
+            return self.generate_text(system_prompt, user_payload)
+        except LLMError as exc:
+            message = str(exc)
+            if _response_format_unsupported(message):
+                return message
+            raise
+
 
 def _extract_json(text: str) -> str:
     stripped = text.strip()
@@ -123,6 +159,22 @@ def _preview(text: str, limit: int = 1200) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "\n...<truncated>"
+
+
+def _response_format_unsupported(message: str) -> bool:
+    lowered = message.lower()
+    return "response_format" in lowered and any(
+        phrase in lowered
+        for phrase in (
+            "unsupported",
+            "not support",
+            "not_supported",
+            "unknown parameter",
+            "unrecognized",
+            "extra inputs are not permitted",
+            "invalid parameter",
+        )
+    )
 
 
 def _project_context_messages(user_payload: dict[str, Any]) -> tuple[list[dict[str, str]], dict[str, Any]]:
