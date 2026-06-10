@@ -172,7 +172,7 @@ def _get_tool(db: Session, tenant_id: str, tool_id: str) -> Tool:
 def _normalize_probe_url(url: str) -> str:
     stripped = url.strip()
     if stripped.startswith("/"):
-        return f"http://localhost:8000{stripped}"
+        return f"{get_settings().normalized_tool_base_url}{stripped}"
     return stripped
 
 

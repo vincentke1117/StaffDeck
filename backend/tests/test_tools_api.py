@@ -4,7 +4,8 @@ from fastapi import HTTPException
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.api.tools import delete_tool, probe_tool
+from app.api.tools import _normalize_probe_url, delete_tool, probe_tool
+from app.config import get_settings
 from app.db.models import Tenant, Tool
 from app.tools.tool_schema import ToolProbeRequest
 
@@ -94,6 +95,17 @@ def test_probe_tool_success_infers_output_schema(monkeypatch: pytest.MonkeyPatch
         assert result.status_code == 200
         assert result.inferred_output_schema["properties"]["found"]["type"] == "boolean"
         assert result.inferred_output_schema["properties"]["missing_benefits"]["type"] == "array"
+
+
+def test_probe_tool_relative_url_uses_configured_tool_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TOOL_BASE_URL", "http://127.0.0.1:10086/")
+    get_settings.cache_clear()
+    try:
+        assert _normalize_probe_url("/api/mock/member/benefit-reconcile") == (
+            "http://127.0.0.1:10086/api/mock/member/benefit-reconcile"
+        )
+    finally:
+        get_settings.cache_clear()
 
 
 def test_probe_tool_http_error_returns_stable_error(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     demo_model_name: str = "qwen3.6-27b"
     demo_model_api_key: str = ""
     tool_timeout_seconds: float = 8.0
+    tool_base_url: str = "http://localhost:8000"
     cors_origins: str = "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -18,6 +19,10 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def normalized_tool_base_url(self) -> str:
+        return self.tool_base_url.rstrip("/")
 
 
 @lru_cache

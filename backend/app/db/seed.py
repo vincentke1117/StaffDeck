@@ -394,6 +394,7 @@ def seed_demo_data(session: Session) -> None:
             _sync_demo_skill_if_stale(existing, content)
 
     for tool_config in DEMO_TOOLS:
+        tool_config = _tool_config_with_base_url(tool_config, settings.normalized_tool_base_url)
         tool = session.exec(
             select(Tool).where(Tool.tenant_id == "tenant_demo", Tool.name == tool_config["name"])
         ).first()
@@ -422,6 +423,22 @@ def seed_demo_data(session: Session) -> None:
         )
 
     session.commit()
+
+
+def _tool_config_with_base_url(tool_config: dict, base_url: str) -> dict:
+    config = dict(tool_config)
+    config["url"] = _tool_url_with_base(config["url"], base_url)
+    return config
+
+
+def _tool_url_with_base(url: str, base_url: str) -> str:
+    stripped = url.strip()
+    if stripped.startswith("/"):
+        return f"{base_url}{stripped}"
+    legacy_base = "http://localhost:8000"
+    if stripped.startswith(f"{legacy_base}/"):
+        return f"{base_url}{stripped[len(legacy_base):]}"
+    return stripped
 
 
 def _seed_weather_general_skill(session: Session) -> None:
