@@ -9,7 +9,7 @@ import {
   DownOutlined,
 } from '@ant-design/icons';
 import { Button, Card, Dropdown, Empty, Input, Select, Space, Tag, Typography, message } from 'antd';
-import type { ChangeEvent } from 'react';
+import type { ChangeEvent, DragEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, streamPost, TENANT_ID } from '../api/client';
 import CodeBlock from '../components/CodeBlock';
@@ -31,6 +31,31 @@ type GeneralSkillFile = {
   content: string;
   size?: number;
   mime_type?: string;
+};
+
+type DroppedSkillFile = {
+  file: File;
+  path: string;
+};
+
+type SkillFileSystemEntry = {
+  name: string;
+  fullPath: string;
+  isFile: boolean;
+  isDirectory: boolean;
+};
+
+type SkillFileEntry = SkillFileSystemEntry & {
+  file: (success: (file: File) => void, failure?: (error: DOMException) => void) => void;
+};
+
+type SkillDirectoryEntry = SkillFileSystemEntry & {
+  createReader: () => {
+    readEntries: (
+      success: (entries: SkillFileSystemEntry[]) => void,
+      failure?: (error: DOMException) => void,
+    ) => void;
+  };
 };
 
 const PHASE_LABELS: Record<string, string> = {
@@ -119,10 +144,66 @@ function resultSucceeded(result: Partial<GeneralSkillRunResponse> | null): boole
   return success !== false && !result.stderr;
 }
 
+function packagePathFromRaw(value: string): string {
+  const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '');
+  const parts = normalized.split('/').filter(Boolean);
+  return parts.length > 1 ? parts.slice(1).join('/') : normalized;
+}
+
 function packagePath(file: File): string {
-  const rawPath = ((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name).replace(/\\/g, '/');
-  const parts = rawPath.split('/').filter(Boolean);
-  return parts.length > 1 ? parts.slice(1).join('/') : rawPath;
+  return packagePathFromRaw((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name);
+}
+
+function readEntryFile(entry: SkillFileEntry): Promise<File> {
+  return new Promise((resolve, reject) => entry.file(resolve, reject));
+}
+
+function readDirectoryEntries(entry: SkillDirectoryEntry): Promise<SkillFileSystemEntry[]> {
+  const reader = entry.createReader();
+  const output: SkillFileSystemEntry[] = [];
+
+  return new Promise((resolve, reject) => {
+    const readNext = () => {
+      reader.readEntries((entries) => {
+        if (!entries.length) {
+          resolve(output);
+          return;
+        }
+        output.push(...entries);
+        readNext();
+      }, reject);
+    };
+    readNext();
+  });
+}
+
+async function collectDroppedEntryFiles(entry: SkillFileSystemEntry): Promise<DroppedSkillFile[]> {
+  if (entry.isFile) {
+    const file = await readEntryFile(entry as SkillFileEntry);
+    return [{ file, path: packagePathFromRaw(entry.fullPath || file.name) }];
+  }
+  if (!entry.isDirectory) return [];
+  const entries = await readDirectoryEntries(entry as SkillDirectoryEntry);
+  const nested = await Promise.all(entries.map(collectDroppedEntryFiles));
+  return nested.flat();
+}
+
+function dataTransferEntry(item: DataTransferItem): SkillFileSystemEntry | null {
+  const getter = (item as unknown as { webkitGetAsEntry?: () => unknown }).webkitGetAsEntry;
+  const entry = getter?.call(item);
+  if (!entry || typeof entry !== 'object') return null;
+  return entry as SkillFileSystemEntry;
+}
+
+async function droppedSkillFiles(dataTransfer: DataTransfer): Promise<DroppedSkillFile[]> {
+  const entries = Array.from(dataTransfer.items || [])
+    .map(dataTransferEntry)
+    .filter((entry): entry is SkillFileSystemEntry => Boolean(entry));
+  if (entries.length) {
+    const nested = await Promise.all(entries.map(collectDroppedEntryFiles));
+    return nested.flat();
+  }
+  return Array.from(dataTransfer.files || []).map((file) => ({ file, path: packagePath(file) }));
 }
 
 function parseMetadata(markdownText: string): Record<string, string> {
@@ -174,6 +255,7 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
   const [liveResult, setLiveResult] = useState<Partial<GeneralSkillRunResponse> | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -369,17 +451,16 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
     message.success(`已读取 ${target.name}`);
   }
 
-  async function importFolderFiles(fileList: FileList | null) {
-    const targets = Array.from(fileList || []);
+  async function importSkillPackage(targets: DroppedSkillFile[]) {
     if (!targets.length) return;
     const nextFiles = await Promise.all(
-      targets.map(async (target) => {
-        const text = await target.text();
+      targets.map(async ({ file, path }) => {
+        const text = await file.text();
         return {
-          path: packagePath(target),
+          path,
           content: text,
-          size: target.size,
-          mime_type: target.type || undefined,
+          size: file.size,
+          mime_type: file.type || undefined,
         };
       }),
     );
@@ -395,6 +476,10 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
     }
   }
 
+  async function importFolderFiles(fileList: FileList | null) {
+    await importSkillPackage(Array.from(fileList || []).map((file) => ({ file, path: packagePath(file) })));
+  }
+
   async function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
     const target = event.target.files?.[0];
     if (target) await importSingleFile(target);
@@ -404,6 +489,42 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
   async function handleFolderInputChange(event: ChangeEvent<HTMLInputElement>) {
     await importFolderFiles(event.target.files);
     event.target.value = '';
+  }
+
+  function acceptsFileDrop(event: DragEvent<HTMLElement>): boolean {
+    return Array.from(event.dataTransfer.types || []).includes('Files');
+  }
+
+  function handleDragEnter(event: DragEvent<HTMLElement>) {
+    if (!acceptsFileDrop(event)) return;
+    event.preventDefault();
+    setDragActive(true);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLElement>) {
+    if (!acceptsFileDrop(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setDragActive(true);
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLElement>) {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return;
+    setDragActive(false);
+  }
+
+  async function handleDrop(event: DragEvent<HTMLElement>) {
+    if (!acceptsFileDrop(event)) return;
+    event.preventDefault();
+    setDragActive(false);
+    const dropped = await droppedSkillFiles(event.dataTransfer);
+    if (!dropped.length) return;
+    if (dropped.length === 1 && !dropped[0].path.includes('/')) {
+      await importSingleFile(dropped[0].file);
+      return;
+    }
+    await importSkillPackage(dropped);
   }
 
   const isLiveRunning = loading && !runResult;
@@ -419,7 +540,11 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
       <div className="general-skill-workbench">
         <Space direction="vertical" size={16} className="general-skill-main">
           <Card
-            className="editor-card general-skill-editor"
+            className={`editor-card general-skill-editor ${dragActive ? 'drag-active' : ''}`}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
             title={(
               <Space>
                 <FileTextOutlined />
@@ -456,6 +581,12 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
           >
             <input ref={fileInputRef} className="visually-hidden-file-input" type="file" accept=".md,.txt" onChange={handleFileInputChange} />
             <input ref={folderInputRef} className="visually-hidden-file-input" type="file" multiple onChange={handleFolderInputChange} />
+            {dragActive && (
+              <div className="general-skill-drop-hint">
+                <UploadOutlined />
+                <span>释放以导入 SKILL.md 或完整技能文件夹</span>
+              </div>
+            )}
             <div className="general-skill-meta-form">
               <Input
                 value={skillName}

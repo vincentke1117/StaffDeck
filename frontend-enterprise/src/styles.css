@@ -633,7 +633,36 @@ body.skill-distill-fixed .content {
 }
 
 .general-skill-editor .ant-card-body {
+  position: relative;
   padding: 0;
+}
+
+.general-skill-editor.drag-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft), var(--shadow-sm);
+}
+
+.general-skill-drop-hint {
+  position: absolute;
+  inset: 74px 18px 18px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 1px dashed var(--accent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 650;
+  pointer-events: none;
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(8px);
+}
+
+.general-skill-drop-hint .anticon {
+  font-size: 20px;
 }
 
 .general-skill-meta-form {
