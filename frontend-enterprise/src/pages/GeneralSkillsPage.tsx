@@ -329,9 +329,10 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
     });
   }, [rows, searchText, statusFilter]);
 
-  const load = () =>
-    api
-      .get<GeneralSkillRead[]>(`/api/enterprise/general-skills?tenant_id=${TENANT_ID}`)
+  const load = () => {
+    const agentSuffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
+    return api
+      .get<GeneralSkillRead[]>(`/api/enterprise/general-skills?tenant_id=${TENANT_ID}${agentSuffix}`)
       .then((items) => {
         setRows(items);
         if (!selectedSlug && items.length) {
@@ -347,10 +348,11 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
         }
       })
       .catch((error) => message.error(error.message));
+  };
 
   useEffect(() => {
-    load();
-  }, []);
+    void load();
+  }, [agentId]);
 
   useEffect(() => {
     api
@@ -485,8 +487,9 @@ export default function GeneralSkillsPage({ embedded = false }: { embedded?: boo
 
   async function setSkillPublished(row: GeneralSkillRead, published: boolean) {
     try {
+      const agentSuffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
       const next = await api.post<GeneralSkillRead>(
-        `/api/enterprise/general-skills/${row.slug}/${published ? 'publish' : 'archive'}?tenant_id=${TENANT_ID}`,
+        `/api/enterprise/general-skills/${row.slug}/${published ? 'publish' : 'archive'}?tenant_id=${TENANT_ID}${agentSuffix}`,
       );
       replaceRow(next);
       message.success(published ? '已发布通用技能' : '已下线通用技能');

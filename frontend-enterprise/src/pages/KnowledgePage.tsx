@@ -1,16 +1,19 @@
 import {
   CheckOutlined,
   CloseOutlined,
-  CopyOutlined,
   DatabaseOutlined,
-  ExperimentOutlined,
+  DeleteOutlined,
+  EditOutlined,
   FileAddOutlined,
   FileSearchOutlined,
+  HistoryOutlined,
   InboxOutlined,
+  MoreOutlined,
   ReloadOutlined,
   RightOutlined,
+  SaveOutlined,
 } from '@ant-design/icons';
-import { Button, Card, Col, Collapse, Empty, Input, Modal, Progress, Row, Select, Space, Table, Tag, Typography, Upload, message } from 'antd';
+import { Button, Card, Col, Collapse, Dropdown, Empty, Input, Modal, Progress, Row, Select, Space, Table, Tag, Typography, Upload, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -18,6 +21,7 @@ import { api, TENANT_ID } from '../api/client';
 import type {
   KnowledgeBaseRead,
   KnowledgeBucketRead,
+  KnowledgeChunkRead,
   KnowledgeDiscoveryRead,
   KnowledgeDocumentRead,
   KnowledgeIngestJobRead,
@@ -26,62 +30,18 @@ import type {
 
 const { Dragger } = Upload;
 const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
-const DEMO_KNOWLEDGE_BASE_NAME = 'Demo 会员权益与配送知识库';
-const DEMO_KNOWLEDGE_FILENAME = 'knowledge_demo_membership_delivery.md';
-const DEMO_KNOWLEDGE_MARKDOWN = `# 会员权益补偿与配送改派处理备忘
 
-这份文档给客服和运营同学做处理参考。用户可能不会按固定格式描述问题，常见说法包括“黑卡券没到账”“活动赠品少了”“说好今天到但物流没动”“地址临时要改”“我不要退款，先补权益”等。
-
-先判断用户当前到底要处理哪一类事情：
-- 会员权益、券、积分、赠品、等级权益发放异常，走权益核对与补偿。
-- 配送承诺、地址改派、期望送达时间变化，走仓配改派评估。
-- 用户同时提到权益和配送时，先确认会影响当前履约的部分，再把另一件事保留为后续任务。
-- 用户只是在问规则或口径时，先查知识依据，不要直接承诺补偿。
-
-## 会员权益核对
-
-如果用户说权益没到账、少发、补券、黑卡礼、积分、赠品等，需要先把用户身份和订单确认清楚。可以用用户 ID、订单号、会员等级、权益类型和活动批次去查一遍权益差异。
-
-可参考的核对入口是 POST http://127.0.0.1:8000/api/mock/member/benefit-reconcile。
-
-请求参数：
-user_id：用户 ID 或会员身份标识，必填。
-order_id：订单号，必填。
-member_level：会员等级，可选，例如 normal、gold、black。
-benefit_type：权益类型，可选，例如 coupon、points、gift。
-benefit_campaign_id：活动批次，可选。
-
-可以先按这个样例核对：用户 user_demo，订单 A12345，会员等级 black，权益类型 coupon，活动批次 vip_2026_midyear。实际处理时，从用户当前消息、历史会话和记忆里拼请求字段。
-
-返回结果里重点看：found、eligible、expected_benefits、delivered_benefits、missing_benefits、difference_reason、recommended_action、can_auto_compensate。只要能说明差异和下一步即可，不要把所有字段都机械复述给用户。
-
-若 can_auto_compensate 为 true，可以告诉用户会进入补发或补偿；若 false，要说明需要复核或转人工。若 found 为 false，先核对订单号和用户身份，不要编造权益。
-
-## 配送改派评估
-
-用户要求改地址、改时间、提前送、晚点送、指定配送方式，或者说承诺没兑现时，需要评估是否可以改派。这个动作不等于直接改派，先判断可行性和风险。
-
-可参考的评估入口是 POST http://127.0.0.1:8000/api/mock/fulfillment/reroute-plan。
-
-请求参数大致包括：
-order_id：订单号，必填。
-address：新的收货地址或地址片段。
-expected_delivery_time：用户希望送达的时间。
-delivery_priority：配送优先级，可选，例如 normal、urgent。
-package_type：包裹类型，可选，例如 standard、fresh、fragile。
-
-样例：订单 A12345，地址“上海市浦东新区测试路 88 号”，希望 2026-06-18 18:00 前送达，优先级 urgent，包裹 standard。实际处理时也要从当前会话中抽字段，不要照抄样例。
-
-返回后看是否 can_reroute、plan_id、risk_level、estimated_delivery_window、extra_cost、recommended_action。如果无法改派，给出原因和替代建议；如果可改派，先向用户确认会产生的变化，不要直接替用户提交。
-
-## 补偿与闭环
-
-权益补偿或配送改派都会影响用户预期。回复时保持三件事：
-1. 已确认的信息是什么。
-2. 系统核对或评估后的结果是什么。
-3. 下一步需要用户确认、等待复核，还是可以继续执行。
-
-如果用户同时提出多个诉求，不要把所有诉求挤成一个步骤。先处理当前最阻塞的事项，把另一个事项作为后续任务。`;
+type KnowledgeBaseVersionRead = {
+  id: string;
+  version: string;
+  name: string;
+  description?: string;
+  status: string;
+  is_head: boolean;
+  is_base: boolean;
+  updated_at: string;
+  created_at: string;
+};
 
 export default function KnowledgeManagePage() {
   const navigate = useNavigate();
@@ -98,9 +58,22 @@ export default function KnowledgeManagePage() {
   const [importSourceKnowledgeBases, setImportSourceKnowledgeBases] = useState<KnowledgeBaseRead[]>([]);
   const [importSelectedKnowledgeBaseIds, setImportSelectedKnowledgeBaseIds] = useState<string[]>([]);
   const [importLoading, setImportLoading] = useState(false);
+  const [editingKnowledgeBase, setEditingKnowledgeBase] = useState<KnowledgeBaseRead | null>(null);
+  const [knowledgeBaseDraft, setKnowledgeBaseDraft] = useState({ name: '', description: '', status: 'active' });
+  const [versionKnowledgeBase, setVersionKnowledgeBase] = useState<KnowledgeBaseRead | null>(null);
+  const [knowledgeBaseVersions, setKnowledgeBaseVersions] = useState<KnowledgeBaseVersionRead[]>([]);
+  const [editingDocument, setEditingDocument] = useState<KnowledgeDocumentRead | null>(null);
+  const [documentDraft, setDocumentDraft] = useState({ title: '', status: 'ready' });
+  const [editingBucket, setEditingBucket] = useState<KnowledgeBucketRead | null>(null);
+  const [bucketDraft, setBucketDraft] = useState({ title: '', summary: '' });
+  const [bucketChunks, setBucketChunks] = useState<KnowledgeChunkRead[]>([]);
+  const [chunkDrafts, setChunkDrafts] = useState<Record<string, { content: string; summary: string }>>({});
+  const [contentSaving, setContentSaving] = useState(false);
 
   const actionableDiscoveries = discoveries.filter((item) => item.status === 'pending' && item.suggestion_type !== 'warning');
   const warningDiscoveries = discoveries.filter((item) => item.suggestion_type === 'warning' || item.status !== 'pending');
+  const currentAgent = useMemo(() => agents.find((item) => item.id === agentId), [agents, agentId]);
+  const isOverallAgent = !currentAgent || currentAgent.is_overall;
 
   useEffect(() => {
     void refresh();
@@ -242,6 +215,192 @@ export default function KnowledgeManagePage() {
     }
   }
 
+  function openEditKnowledgeBase(row: KnowledgeBaseRead) {
+    setEditingKnowledgeBase(row);
+    setKnowledgeBaseDraft({
+      name: row.name,
+      description: row.description || '',
+      status: row.status === 'archived' ? 'archived' : 'active',
+    });
+  }
+
+  async function saveKnowledgeBase() {
+    if (!editingKnowledgeBase) return;
+    const suffix = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : '';
+    try {
+      const next = await api.put<KnowledgeBaseRead>(`/api/enterprise/knowledge-bases/${editingKnowledgeBase.id}${suffix}`, {
+        tenant_id: TENANT_ID,
+        name: knowledgeBaseDraft.name,
+        description: knowledgeBaseDraft.description,
+        status: knowledgeBaseDraft.status,
+      });
+      setKnowledgeBases((current) => current.map((item) => (item.id === next.id ? next : item)));
+      setEditingKnowledgeBase(null);
+      message.success('已保存知识库');
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '保存知识库失败');
+    }
+  }
+
+  async function setKnowledgeBaseStatus(row: KnowledgeBaseRead, active: boolean) {
+    const suffix = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : '';
+    try {
+      await api.put<KnowledgeBaseRead>(`/api/enterprise/knowledge-bases/${row.id}${suffix}`, {
+        tenant_id: TENANT_ID,
+        status: active ? 'active' : 'archived',
+      });
+      message.success(active ? '已上线知识库' : '已下线知识库');
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : active ? '上线失败' : '下线失败');
+    }
+  }
+
+  function deleteKnowledgeBase(row: KnowledgeBaseRead) {
+    Modal.confirm({
+      title: `删除知识库：${row.name}`,
+      content: '只有整体智能体可以删除知识库；有文档的知识库会被归档，避免误删内容。',
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      async onOk() {
+        const suffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
+        try {
+          await api.delete(`/api/enterprise/knowledge-bases/${row.id}?tenant_id=${TENANT_ID}${suffix}`);
+          message.success('已处理删除请求');
+          await refresh();
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : '删除失败');
+        }
+      },
+    });
+  }
+
+  async function openKnowledgeBaseVersions(row: KnowledgeBaseRead) {
+    const suffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
+    try {
+      const versions = await api.get<KnowledgeBaseVersionRead[]>(
+        `/api/enterprise/knowledge-bases/${row.id}/versions?tenant_id=${TENANT_ID}${suffix}`,
+      );
+      setVersionKnowledgeBase(row);
+      setKnowledgeBaseVersions(versions);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载版本失败');
+    }
+  }
+
+  async function syncKnowledgeBaseFromOverall(row: KnowledgeBaseRead) {
+    if (!agentId) {
+      message.warning('请先选择智能体');
+      return;
+    }
+    try {
+      await api.post(`/api/enterprise/knowledge-bases/${row.id}/sync-from-overall?tenant_id=${TENANT_ID}&agent_id=${encodeURIComponent(agentId)}`);
+      message.success('已同步整体知识库');
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '同步失败');
+    }
+  }
+
+  async function promoteKnowledgeBaseToOverall(row: KnowledgeBaseRead) {
+    if (!agentId) {
+      message.warning('请先选择智能体');
+      return;
+    }
+    try {
+      await api.post(`/api/enterprise/knowledge-bases/${row.id}/promote-to-overall?tenant_id=${TENANT_ID}&agent_id=${encodeURIComponent(agentId)}`);
+      message.success('已推送到整体知识库');
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '推送失败');
+    }
+  }
+
+  async function rollbackKnowledgeBaseVersion(version: KnowledgeBaseVersionRead) {
+    if (!versionKnowledgeBase || !agentId) return;
+    try {
+      await api.post(`/api/enterprise/knowledge-bases/${versionKnowledgeBase.id}/rollback`, {
+        tenant_id: TENANT_ID,
+        agent_id: agentId,
+        version: version.version,
+      });
+      message.success(`已回滚到 ${version.version}`);
+      await openKnowledgeBaseVersions(versionKnowledgeBase);
+      await refresh();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '回滚失败');
+    }
+  }
+
+  function openEditDocument(row: KnowledgeDocumentRead) {
+    setEditingDocument(row);
+    setDocumentDraft({
+      title: row.title || row.filename,
+      status: row.status,
+    });
+  }
+
+  async function saveDocument() {
+    if (!editingDocument) return;
+    try {
+      const next = await api.put<KnowledgeDocumentRead>(`/api/enterprise/knowledge/documents/${editingDocument.id}`, {
+        tenant_id: TENANT_ID,
+        title: documentDraft.title,
+        status: documentDraft.status,
+      });
+      setDocuments((current) => current.map((item) => (item.id === next.id ? next : item)));
+      setSelectedDocument((current) => (current?.id === next.id ? next : current));
+      setEditingDocument(null);
+      message.success('已保存文档');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '保存文档失败');
+    }
+  }
+
+  async function openBucketEditor(row: KnowledgeBucketRead) {
+    setEditingBucket(row);
+    setBucketDraft({ title: row.title, summary: row.summary });
+    try {
+      const chunks = await api.get<KnowledgeChunkRead[]>(`/api/enterprise/knowledge/buckets/${row.id}/chunks?tenant_id=${TENANT_ID}`);
+      setBucketChunks(chunks);
+      setChunkDrafts(
+        Object.fromEntries(chunks.map((chunk) => [chunk.id, { content: chunk.content, summary: chunk.summary || '' }])),
+      );
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '加载片段失败');
+    }
+  }
+
+  async function saveBucketAndChunks() {
+    if (!editingBucket) return;
+    setContentSaving(true);
+    try {
+      await api.put<KnowledgeBucketRead>(`/api/enterprise/knowledge/buckets/${editingBucket.id}`, {
+        tenant_id: TENANT_ID,
+        title: bucketDraft.title,
+        summary: bucketDraft.summary,
+      });
+      await Promise.all(
+        bucketChunks.map((chunk) =>
+          api.put<KnowledgeChunkRead>(`/api/enterprise/knowledge/chunks/${chunk.id}`, {
+            tenant_id: TENANT_ID,
+            content: chunkDrafts[chunk.id]?.content ?? chunk.content,
+            summary: chunkDrafts[chunk.id]?.summary ?? chunk.summary,
+          }),
+        ),
+      );
+      message.success('已保存知识内容');
+      setEditingBucket(null);
+      if (selectedDocument) await loadBuckets(selectedDocument, false);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '保存知识内容失败');
+    } finally {
+      setContentSaving(false);
+    }
+  }
+
   const documentColumns: ColumnsType<KnowledgeDocumentRead> = [
     {
       title: '知识',
@@ -258,6 +417,15 @@ export default function KnowledgeManagePage() {
     { title: '桶', dataIndex: 'bucket_count', width: 72 },
     { title: '片段', dataIndex: 'chunk_count', width: 72 },
     { title: '更新', dataIndex: 'updated_at', width: 120, render: (value) => String(value).slice(0, 10) },
+    {
+      title: '操作',
+      width: 86,
+      render: (_value, row) => (
+        <Button size="small" icon={<EditOutlined />} onClick={() => openEditDocument(row)}>
+          编辑
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -285,11 +453,39 @@ export default function KnowledgeManagePage() {
               <div className="knowledge-base-grid">
                 {knowledgeBases.map((item) => (
                   <div className="knowledge-base-card" key={item.id}>
-                    <div>
-                      <Typography.Text strong>{item.name}</Typography.Text>
-                      <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }}>
-                        {item.description || '未填写描述'}
-                      </Typography.Paragraph>
+                    <div className="knowledge-base-card-head">
+                      <div>
+                        <Typography.Text strong>{item.name}</Typography.Text>
+                        <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }}>
+                          {item.description || '未填写描述'}
+                        </Typography.Paragraph>
+                      </div>
+                      <Dropdown
+                        trigger={['click']}
+                        menu={{
+                          items: [
+                            { key: 'edit', icon: <EditOutlined />, label: '编辑' },
+                            { key: 'versions', icon: <HistoryOutlined />, label: '版本管理' },
+                            !isOverallAgent ? { key: 'sync', label: '同步整体' } : null,
+                            !isOverallAgent ? { key: 'promote', label: '推送到整体' } : null,
+                            item.status === 'archived'
+                              ? { key: 'publish', label: '上线' }
+                              : { key: 'archive', label: '下线' },
+                            isOverallAgent ? { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true } : null,
+                          ].filter(Boolean),
+                          onClick: ({ key }) => {
+                            if (key === 'edit') openEditKnowledgeBase(item);
+                            if (key === 'versions') void openKnowledgeBaseVersions(item);
+                            if (key === 'sync') void syncKnowledgeBaseFromOverall(item);
+                            if (key === 'promote') void promoteKnowledgeBaseToOverall(item);
+                            if (key === 'publish') void setKnowledgeBaseStatus(item, true);
+                            if (key === 'archive') void setKnowledgeBaseStatus(item, false);
+                            if (key === 'delete') deleteKnowledgeBase(item);
+                          },
+                        }}
+                      >
+                        <Button type="text" size="small" icon={<MoreOutlined />} />
+                      </Dropdown>
                     </div>
                     <Space size={6} wrap>
                       {statusTag(item.status)}
@@ -335,7 +531,12 @@ export default function KnowledgeManagePage() {
                   <div className="knowledge-bucket-item" key={bucket.id}>
                     <div className="knowledge-bucket-title">
                       <span>{bucket.title}</span>
-                      {bucketStatusTag(bucket)}
+                      <Space size={6}>
+                        {bucketStatusTag(bucket)}
+                        <Button size="small" icon={<EditOutlined />} onClick={() => void openBucketEditor(bucket)}>
+                          编辑
+                        </Button>
+                      </Space>
                     </div>
                     <Typography.Paragraph ellipsis={{ rows: 3 }}>{bucket.summary}</Typography.Paragraph>
                     <div className="knowledge-bucket-meta">
@@ -415,6 +616,150 @@ export default function KnowledgeManagePage() {
           <Typography.Text type="secondary">
             导入会复制来源智能体中选中知识库的分支版本；目标为整体智能体时，会将来源分支推送为整体知识库新版本。
           </Typography.Text>
+        </Space>
+      </Modal>
+      <Modal
+        open={Boolean(editingKnowledgeBase)}
+        title="编辑知识库"
+        okText="保存"
+        cancelText="取消"
+        onOk={() => void saveKnowledgeBase()}
+        onCancel={() => setEditingKnowledgeBase(null)}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Input
+            value={knowledgeBaseDraft.name}
+            onChange={(event) => setKnowledgeBaseDraft((prev) => ({ ...prev, name: event.target.value }))}
+            placeholder="知识库名称"
+          />
+          <Input.TextArea
+            rows={4}
+            value={knowledgeBaseDraft.description}
+            onChange={(event) => setKnowledgeBaseDraft((prev) => ({ ...prev, description: event.target.value }))}
+            placeholder="知识库描述"
+          />
+          <Select
+            value={knowledgeBaseDraft.status}
+            onChange={(value) => setKnowledgeBaseDraft((prev) => ({ ...prev, status: value }))}
+            options={[
+              { value: 'active', label: '上线' },
+              { value: 'archived', label: '下线' },
+            ]}
+          />
+        </Space>
+      </Modal>
+      <Modal
+        open={Boolean(versionKnowledgeBase)}
+        title={versionKnowledgeBase ? `版本管理：${versionKnowledgeBase.name}` : '版本管理'}
+        width={840}
+        footer={<Button onClick={() => setVersionKnowledgeBase(null)}>关闭</Button>}
+        onCancel={() => setVersionKnowledgeBase(null)}
+      >
+        <Table
+          rowKey="id"
+          size="small"
+          pagination={false}
+          dataSource={knowledgeBaseVersions}
+          columns={[
+            { title: '版本', dataIndex: 'version' },
+            { title: '名称', dataIndex: 'name' },
+            { title: '状态', dataIndex: 'status', render: (value) => statusTag(String(value)) },
+            { title: 'Head', dataIndex: 'is_head', render: (value) => (value ? <Tag color="green">当前</Tag> : null) },
+            { title: '更新时间', dataIndex: 'updated_at', render: (value) => String(value).slice(0, 10) },
+            {
+              title: '操作',
+              width: 96,
+              render: (_value, row) =>
+                !isOverallAgent && !row.is_head ? (
+                  <Button size="small" onClick={() => void rollbackKnowledgeBaseVersion(row)}>
+                    回滚
+                  </Button>
+                ) : null,
+            },
+          ]}
+        />
+      </Modal>
+      <Modal
+        open={Boolean(editingDocument)}
+        title="编辑文档"
+        okText="保存"
+        cancelText="取消"
+        onOk={() => void saveDocument()}
+        onCancel={() => setEditingDocument(null)}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Input
+            value={documentDraft.title}
+            onChange={(event) => setDocumentDraft((prev) => ({ ...prev, title: event.target.value }))}
+            placeholder="文档标题"
+          />
+          <Select
+            value={documentDraft.status}
+            onChange={(value) => setDocumentDraft((prev) => ({ ...prev, status: value }))}
+            options={[
+              { value: 'ready', label: '可用' },
+              { value: 'processing', label: '处理中' },
+              { value: 'failed', label: '失败' },
+              { value: 'archived', label: '下线' },
+            ]}
+          />
+        </Space>
+      </Modal>
+      <Modal
+        className="knowledge-editor-modal"
+        open={Boolean(editingBucket)}
+        title="编辑知识桶与片段"
+        width={920}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={contentSaving}
+        onOk={() => void saveBucketAndChunks()}
+        onCancel={() => setEditingBucket(null)}
+      >
+        <Space direction="vertical" size={14} style={{ width: '100%' }}>
+          <Input
+            value={bucketDraft.title}
+            onChange={(event) => setBucketDraft((prev) => ({ ...prev, title: event.target.value }))}
+            placeholder="知识桶标题"
+          />
+          <Input.TextArea
+            rows={4}
+            value={bucketDraft.summary}
+            onChange={(event) => setBucketDraft((prev) => ({ ...prev, summary: event.target.value }))}
+            placeholder="知识桶摘要"
+          />
+          <div className="knowledge-chunk-editor-list">
+            {bucketChunks.map((chunk) => (
+              <div className="knowledge-chunk-editor" key={chunk.id}>
+                <div className="knowledge-chunk-editor-head">
+                  <Typography.Text strong>片段 {chunk.chunk_index + 1}</Typography.Text>
+                  <Tag>{chunk.source_ref || 'chunk'}</Tag>
+                </div>
+                <Input.TextArea
+                  rows={2}
+                  value={chunkDrafts[chunk.id]?.summary || ''}
+                  onChange={(event) =>
+                    setChunkDrafts((prev) => ({
+                      ...prev,
+                      [chunk.id]: { ...(prev[chunk.id] || { content: chunk.content, summary: '' }), summary: event.target.value },
+                    }))
+                  }
+                  placeholder="片段摘要"
+                />
+                <Input.TextArea
+                  rows={6}
+                  value={chunkDrafts[chunk.id]?.content || ''}
+                  onChange={(event) =>
+                    setChunkDrafts((prev) => ({
+                      ...prev,
+                      [chunk.id]: { ...(prev[chunk.id] || { content: '', summary: chunk.summary || '' }), content: event.target.value },
+                    }))
+                  }
+                  placeholder="片段内容"
+                />
+              </div>
+            ))}
+          </div>
         </Space>
       </Modal>
     </div>
@@ -522,35 +867,6 @@ export function KnowledgeAddPage() {
     }
   }
 
-  async function uploadDemoKnowledge() {
-    let targetKnowledgeBaseId = selectedKnowledgeBaseId;
-    if (!targetKnowledgeBaseId) {
-      const existingDemoBase = knowledgeBases.find((item) => item.name === DEMO_KNOWLEDGE_BASE_NAME);
-      if (existingDemoBase) {
-        targetKnowledgeBaseId = existingDemoBase.id;
-        setSelectedKnowledgeBaseId(existingDemoBase.id);
-      } else {
-        const row = await createKnowledgeBaseWithName(
-          DEMO_KNOWLEDGE_BASE_NAME,
-          '用于验证知识分桶、渐进检索、技能发现和工具发现的测试知识库。',
-        );
-        if (!row) return;
-        targetKnowledgeBaseId = row.id;
-      }
-    }
-    const demoFile = new File([DEMO_KNOWLEDGE_MARKDOWN], DEMO_KNOWLEDGE_FILENAME, { type: 'text/markdown;charset=utf-8' });
-    await uploadFile(demoFile, targetKnowledgeBaseId);
-  }
-
-  async function copyDemoKnowledge() {
-    try {
-      await navigator.clipboard.writeText(DEMO_KNOWLEDGE_MARKDOWN);
-      message.success('已复制 Demo 文档内容');
-    } catch {
-      message.error('复制失败，请直接使用上传 Demo');
-    }
-  }
-
   return (
     <div className="knowledge-page knowledge-add-page">
       <div className="knowledge-hero">
@@ -583,25 +899,6 @@ export function KnowledgeAddPage() {
               onPressEnter={() => void createKnowledgeBase()}
             />
             <Button onClick={() => void createKnowledgeBase()}>新建知识库</Button>
-          </Space>
-        </div>
-        <div className="knowledge-demo-panel">
-          <div className="knowledge-demo-copy">
-            <ExperimentOutlined />
-            <div>
-              <Typography.Text strong>测试 Demo：会员权益补偿与配送改派</Typography.Text>
-              <Typography.Text type="secondary">
-                用于验证知识分桶、切片、自发现技能，以及从自然文档中抽取两个未配置工具。
-              </Typography.Text>
-            </div>
-          </div>
-          <Space wrap>
-            <Button icon={<ExperimentOutlined />} onClick={() => void uploadDemoKnowledge()}>
-              上传测试 Demo
-            </Button>
-            <Button icon={<CopyOutlined />} onClick={() => void copyDemoKnowledge()}>
-              复制内容
-            </Button>
           </Space>
         </div>
         <Dragger
@@ -711,8 +1008,21 @@ function DiscoveryColumn({
 }
 
 function statusTag(status: string) {
-  const color = status === 'succeeded' || status === 'ready' || status === 'confirmed' ? 'green' : status === 'failed' ? 'red' : 'gold';
-  return <Tag color={color}>{status}</Tag>;
+  const map: Record<string, { color: string; label: string }> = {
+    active: { color: 'green', label: '已上线' },
+    published: { color: 'green', label: '已发布' },
+    archived: { color: 'default', label: '已下线' },
+    draft: { color: 'default', label: '草稿' },
+    succeeded: { color: 'green', label: '已完成' },
+    ready: { color: 'green', label: '达标' },
+    confirmed: { color: 'green', label: '已确认' },
+    failed: { color: 'red', label: '失败' },
+    pending: { color: 'gold', label: '待处理' },
+    running: { color: 'processing', label: '处理中' },
+    queued: { color: 'gold', label: '排队中' },
+  };
+  const item = map[status] || { color: 'gold', label: status };
+  return <Tag color={item.color}>{item.label}</Tag>;
 }
 
 function bucketStatusTag(bucket: KnowledgeBucketRead) {

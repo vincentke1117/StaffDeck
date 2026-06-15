@@ -103,7 +103,7 @@ def visible_skill_rows(
     db: Session,
     tenant_id: str,
     agent_id: str | None = None,
-    include_inactive: bool = False,
+    include_inactive: bool = True,
 ) -> list[Skill]:
     agent = get_agent(db, tenant_id, agent_id)
     if not agent or agent.is_overall:

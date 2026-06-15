@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from app.agents.branching import knowledge_version_for_upload, visible_knowledge_base_version_ids
+from app.agents.branching import get_agent, knowledge_version_for_upload, visible_knowledge_base_version_ids
 from app.async_jobs import enqueue_async_job
 from app.db import get_session
 from app.db.models import (
@@ -14,14 +14,20 @@ from app.db.models import (
     KnowledgeDocument,
     KnowledgeIngestJob,
     KnowledgeBase,
+    KnowledgeBaseVersion,
+    AgentKnowledgeBranch,
     ModelConfig,
+    utc_now,
 )
 from app.knowledge.schema import (
     KnowledgeBucketRead,
     KnowledgeChunkRead,
+    KnowledgeChunkUpdateRequest,
     KnowledgeDiscoveryRead,
     KnowledgeDocumentRead,
+    KnowledgeDocumentUpdateRequest,
     KnowledgeDocumentUploadRequest,
+    KnowledgeBucketUpdateRequest,
     KnowledgeIngestJobRead,
     KnowledgeSearchRequest,
     KnowledgeSearchResponse,
@@ -87,9 +93,31 @@ def list_documents(
     if knowledge_base_id:
         stmt = stmt.where(KnowledgeDocument.knowledge_base_id == knowledge_base_id)
     elif agent_id:
+        agent = get_agent(db, tenant_id, agent_id)
+        if agent and not agent.is_overall:
+            branches = db.exec(
+                select(AgentKnowledgeBranch).where(
+                    AgentKnowledgeBranch.tenant_id == tenant_id,
+                    AgentKnowledgeBranch.agent_id == agent.id,
+                )
+            ).all()
+            version_ids = [
+                row.id
+                for row in db.exec(
+                    select(KnowledgeBaseVersion).where(
+                        KnowledgeBaseVersion.tenant_id == tenant_id,
+                        KnowledgeBaseVersion.knowledge_base_id.in_([branch.knowledge_base_id for branch in branches])
+                        if branches
+                        else KnowledgeBaseVersion.knowledge_base_id == "__none__",
+                    )
+                ).all()
+                if any(branch.knowledge_base_id == row.knowledge_base_id and branch.head_version == row.version for branch in branches)
+            ]
+        else:
+            version_ids = visible_version_ids
         stmt = stmt.where(
-            KnowledgeDocument.knowledge_base_version_id.in_(visible_version_ids)
-            if visible_version_ids
+            KnowledgeDocument.knowledge_base_version_id.in_(version_ids)
+            if version_ids
             else KnowledgeDocument.knowledge_base_version_id == "__none__"
         )
     rows = db.exec(stmt.order_by(KnowledgeDocument.created_at.desc())).all()
@@ -103,6 +131,26 @@ def get_document(
     db: Session = Depends(get_session),
 ) -> KnowledgeDocumentRead:
     row = _get_document(db, tenant_id, document_id)
+    return document_read(row)
+
+
+@router.put("/documents/{document_id}", response_model=KnowledgeDocumentRead)
+def update_document(
+    document_id: str,
+    request: KnowledgeDocumentUpdateRequest,
+    db: Session = Depends(get_session),
+) -> KnowledgeDocumentRead:
+    row = _get_document(db, request.tenant_id, document_id)
+    if request.title is not None:
+        row.title = request.title.strip() or row.filename
+    if request.status is not None:
+        row.status = request.status
+    if request.metadata is not None:
+        row.metadata_json = request.metadata
+    row.updated_at = utc_now()
+    db.add(row)
+    db.commit()
+    db.refresh(row)
     return document_read(row)
 
 
@@ -128,6 +176,35 @@ def get_document_buckets(
     return [bucket_read_with_stats(row, int(chunk_counts.get(row.id, 0))) for row in rows]
 
 
+@router.put("/buckets/{bucket_id}", response_model=KnowledgeBucketRead)
+def update_bucket(
+    bucket_id: str,
+    request: KnowledgeBucketUpdateRequest,
+    db: Session = Depends(get_session),
+) -> KnowledgeBucketRead:
+    ensure_tenant(db, request.tenant_id)
+    row = db.get(KnowledgeBucket, bucket_id)
+    if not row or row.tenant_id != request.tenant_id:
+        raise HTTPException(status_code=404, detail="Knowledge bucket not found")
+    if request.title is not None:
+        row.title = request.title.strip() or row.title
+    if request.summary is not None:
+        row.summary = request.summary
+    if request.metadata is not None:
+        row.metadata_json = request.metadata
+    row.updated_at = utc_now()
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    chunk_count = db.exec(
+        select(func.count(KnowledgeChunk.id)).where(
+            KnowledgeChunk.tenant_id == request.tenant_id,
+            KnowledgeChunk.bucket_id == bucket_id,
+        )
+    ).one()
+    return bucket_read_with_stats(row, int(chunk_count or 0))
+
+
 @router.get("/buckets/{bucket_id}/chunks", response_model=list[KnowledgeChunkRead])
 def get_bucket_chunks(
     bucket_id: str,
@@ -144,6 +221,29 @@ def get_bucket_chunks(
         .order_by(KnowledgeChunk.chunk_index.asc())
     ).all()
     return [chunk_read(row) for row in rows]
+
+
+@router.put("/chunks/{chunk_id}", response_model=KnowledgeChunkRead)
+def update_chunk(
+    chunk_id: str,
+    request: KnowledgeChunkUpdateRequest,
+    db: Session = Depends(get_session),
+) -> KnowledgeChunkRead:
+    ensure_tenant(db, request.tenant_id)
+    row = db.get(KnowledgeChunk, chunk_id)
+    if not row or row.tenant_id != request.tenant_id:
+        raise HTTPException(status_code=404, detail="Knowledge chunk not found")
+    if request.content is not None:
+        row.content = request.content
+    if request.summary is not None:
+        row.summary = request.summary
+    if request.metadata is not None:
+        row.metadata_json = request.metadata
+    row.updated_at = utc_now()
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return chunk_read(row)
 
 
 @router.post("/search", response_model=KnowledgeSearchResponse)

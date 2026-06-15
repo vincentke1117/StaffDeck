@@ -6,11 +6,11 @@ from sqlmodel import Session, select
 
 from app.db import get_session
 from app.agents.branching import (
+    ensure_knowledge_base_version,
     get_agent,
     promote_knowledge_branch_to_overall,
     rollback_knowledge_branch,
     sync_knowledge_branch_from_overall,
-    visible_knowledge_base_versions,
 )
 from app.db.models import (
     AgentKnowledgeBranch,
@@ -19,6 +19,7 @@ from app.db.models import (
     KnowledgeBucket,
     KnowledgeChunk,
     KnowledgeDocument,
+    KnowledgeBaseVersion,
     utc_now,
 )
 from app.knowledge.schema import (
@@ -39,7 +40,43 @@ def list_knowledge_bases(
     db: Session = Depends(get_session),
 ) -> list[KnowledgeBaseRead]:
     ensure_tenant(db, tenant_id)
-    visible_versions = visible_knowledge_base_versions(db, tenant_id, agent_id)
+    agent = get_agent(db, tenant_id, agent_id)
+    if agent and not agent.is_overall:
+        branches = db.exec(
+            select(AgentKnowledgeBranch)
+            .where(AgentKnowledgeBranch.tenant_id == tenant_id, AgentKnowledgeBranch.agent_id == agent.id)
+            .order_by(AgentKnowledgeBranch.updated_at.desc())
+        ).all()
+        if not branches:
+            return []
+        knowledge_base_ids = [branch.knowledge_base_id for branch in branches]
+        rows_by_id = {
+            row.id: row
+            for row in db.exec(
+                select(KnowledgeBase).where(
+                    KnowledgeBase.tenant_id == tenant_id,
+                    KnowledgeBase.id.in_(knowledge_base_ids),
+                )
+            ).all()
+        }
+        versions: dict[str, KnowledgeBaseVersion] = {}
+        for branch in branches:
+            kb = rows_by_id.get(branch.knowledge_base_id)
+            if kb:
+                versions[kb.id] = ensure_knowledge_base_version(db, kb, branch.head_version)
+        stats = _knowledge_base_stats(db, tenant_id, [version.id for version in versions.values()])
+        branch_meta = _knowledge_branch_meta(db, tenant_id, agent_id)
+        return [
+            knowledge_base_read(
+                rows_by_id[branch.knowledge_base_id],
+                stats.get(branch.knowledge_base_id, {}),
+                version_row=versions.get(branch.knowledge_base_id),
+                branch_meta=branch_meta.get(branch.knowledge_base_id),
+            )
+            for branch in branches
+            if branch.knowledge_base_id in rows_by_id
+        ]
+    visible_versions = _management_knowledge_base_versions(db, tenant_id, agent_id)
     visible_ids = list(visible_versions.keys())
     rows = db.exec(
         select(KnowledgeBase)
@@ -52,7 +89,7 @@ def list_knowledge_bases(
         knowledge_base_read(
             row,
             stats.get(row.id, {}),
-            version=visible_versions.get(row.id).version if visible_versions.get(row.id) else None,
+            version_row=visible_versions.get(row.id),
             branch_meta=branch_meta.get(row.id),
         )
         for row in rows
@@ -98,7 +135,7 @@ def create_knowledge_base(
         sync_knowledge_branch_from_overall(db, request.tenant_id, agent.id, row.id)
     db.commit()
     db.refresh(row)
-    return knowledge_base_read(row, {})
+    return knowledge_base_read(row, {}, version_row=ensure_knowledge_base_version(db, row))
 
 
 @router.get("/{knowledge_base_id}", response_model=KnowledgeBaseRead)
@@ -109,7 +146,7 @@ def get_knowledge_base(
     db: Session = Depends(get_session),
 ) -> KnowledgeBaseRead:
     row = _get_knowledge_base(db, tenant_id, knowledge_base_id)
-    visible_versions = visible_knowledge_base_versions(db, tenant_id, agent_id)
+    visible_versions = _management_knowledge_base_versions(db, tenant_id, agent_id)
     stats = _knowledge_base_stats(
         db,
         tenant_id,
@@ -119,7 +156,7 @@ def get_knowledge_base(
     return knowledge_base_read(
         row,
         stats.get(row.id, {}),
-        version=visible_versions.get(row.id).version if visible_versions.get(row.id) else None,
+        version_row=visible_versions.get(row.id),
         branch_meta=branch_meta,
     )
 
@@ -128,9 +165,65 @@ def get_knowledge_base(
 def update_knowledge_base(
     knowledge_base_id: str,
     request: KnowledgeBaseUpdateRequest,
+    agent_id: str | None = Query(None),
     db: Session = Depends(get_session),
 ) -> KnowledgeBaseRead:
     row = _get_knowledge_base(db, request.tenant_id, knowledge_base_id)
+    agent = get_agent(db, request.tenant_id, agent_id)
+    if agent and not agent.is_overall:
+        branch = db.exec(
+            select(AgentKnowledgeBranch).where(
+                AgentKnowledgeBranch.tenant_id == request.tenant_id,
+                AgentKnowledgeBranch.agent_id == agent.id,
+                AgentKnowledgeBranch.knowledge_base_id == knowledge_base_id,
+            )
+        ).first()
+        if not branch:
+            branch = sync_knowledge_branch_from_overall(db, request.tenant_id, agent.id, knowledge_base_id)
+        version = ensure_knowledge_base_version(db, row, branch.head_version)
+        if request.name is not None:
+            name = request.name.strip()
+            if not name:
+                raise HTTPException(status_code=400, detail="Knowledge base name cannot be empty")
+            version.name = name
+        if request.description is not None:
+            version.description = request.description
+        if request.metadata is not None:
+            version.metadata_json = request.metadata
+        if request.status is not None:
+            branch.status = "active" if request.status == "active" else "inactive"
+            binding = db.exec(
+                select(AgentResourceBinding).where(
+                    AgentResourceBinding.tenant_id == request.tenant_id,
+                    AgentResourceBinding.agent_id == agent.id,
+                    AgentResourceBinding.resource_type == "knowledge_base",
+                    AgentResourceBinding.resource_id == knowledge_base_id,
+                )
+            ).first()
+            if binding:
+                binding.status = branch.status
+                binding.updated_at = utc_now()
+                db.add(binding)
+        if request.name is not None or request.description is not None or request.metadata is not None:
+            branch.sync_state = "diverged"
+        version.updated_at = utc_now()
+        branch.updated_at = utc_now()
+        db.add(version)
+        db.add(branch)
+        db.commit()
+        db.refresh(row)
+        stats = _knowledge_base_stats(db, request.tenant_id, [version.id]).get(row.id, {})
+        return knowledge_base_read(
+            row,
+            stats,
+            version_row=version,
+            branch_meta={
+                "base_version": branch.base_version,
+                "head_version": branch.head_version,
+                "sync_state": branch.sync_state,
+                "status": branch.status,
+            },
+        )
     if request.name is not None:
         name = request.name.strip()
         if not name:
@@ -155,7 +248,50 @@ def update_knowledge_base(
     db.add(row)
     db.commit()
     db.refresh(row)
-    return knowledge_base_read(row, _knowledge_base_stats(db, request.tenant_id).get(row.id, {}))
+    return knowledge_base_read(
+        row,
+        _knowledge_base_stats(db, request.tenant_id).get(row.id, {}),
+        version_row=ensure_knowledge_base_version(db, row),
+    )
+
+
+@router.get("/{knowledge_base_id}/versions")
+def list_knowledge_base_versions(
+    knowledge_base_id: str,
+    tenant_id: str = Query(...),
+    agent_id: str | None = Query(None),
+    db: Session = Depends(get_session),
+) -> list[dict[str, object]]:
+    row = _get_knowledge_base(db, tenant_id, knowledge_base_id)
+    agent = get_agent(db, tenant_id, agent_id)
+    branch = None
+    if agent and not agent.is_overall:
+        branch = db.exec(
+            select(AgentKnowledgeBranch).where(
+                AgentKnowledgeBranch.tenant_id == tenant_id,
+                AgentKnowledgeBranch.agent_id == agent.id,
+                AgentKnowledgeBranch.knowledge_base_id == knowledge_base_id,
+            )
+        ).first()
+    rows = db.exec(
+        select(KnowledgeBaseVersion)
+        .where(KnowledgeBaseVersion.tenant_id == tenant_id, KnowledgeBaseVersion.knowledge_base_id == row.id)
+        .order_by(KnowledgeBaseVersion.updated_at.desc())
+    ).all()
+    return [
+        {
+            "id": version.id,
+            "version": version.version,
+            "name": version.name,
+            "description": version.description,
+            "status": version.status,
+            "is_head": bool(branch and branch.head_version == version.version),
+            "is_base": bool(branch and branch.base_version == version.version),
+            "updated_at": version.updated_at.isoformat(),
+            "created_at": version.created_at.isoformat(),
+        }
+        for version in rows
+    ]
 
 
 @router.delete("/{knowledge_base_id}")
@@ -239,26 +375,51 @@ def rollback_knowledge_base(
 def knowledge_base_read(
     row: KnowledgeBase,
     stats: dict[str, int],
-    version: str | None = None,
+    version_row: KnowledgeBaseVersion | None = None,
     branch_meta: dict[str, str] | None = None,
 ) -> KnowledgeBaseRead:
+    branch_status = (branch_meta or {}).get("status")
+    effective_status = "archived" if branch_status == "inactive" else (branch_status or (version_row.status if version_row else row.status))
     return KnowledgeBaseRead(
         id=row.id,
         tenant_id=row.tenant_id,
-        name=row.name,
-        description=row.description,
-        status=row.status,
-        version=version,
+        name=version_row.name if version_row else row.name,
+        description=version_row.description if version_row else row.description,
+        status=effective_status,
+        version=version_row.version if version_row else None,
         branch_sync_state=(branch_meta or {}).get("sync_state"),
         branch_base_version=(branch_meta or {}).get("base_version"),
         branch_head_version=(branch_meta or {}).get("head_version"),
-        metadata=row.metadata_json or {},
+        metadata=(version_row.metadata_json if version_row else row.metadata_json) or {},
         document_count=int(stats.get("document_count", 0)),
         bucket_count=int(stats.get("bucket_count", 0)),
         chunk_count=int(stats.get("chunk_count", 0)),
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
     )
+
+
+def _management_knowledge_base_versions(
+    db: Session,
+    tenant_id: str,
+    agent_id: str | None,
+) -> dict[str, KnowledgeBaseVersion]:
+    agent = get_agent(db, tenant_id, agent_id)
+    if agent and not agent.is_overall:
+        branches = db.exec(
+            select(AgentKnowledgeBranch).where(
+                AgentKnowledgeBranch.tenant_id == tenant_id,
+                AgentKnowledgeBranch.agent_id == agent.id,
+            )
+        ).all()
+        result: dict[str, KnowledgeBaseVersion] = {}
+        for branch in branches:
+            kb = db.get(KnowledgeBase, branch.knowledge_base_id)
+            if kb and kb.tenant_id == tenant_id:
+                result[kb.id] = ensure_knowledge_base_version(db, kb, branch.head_version)
+        return result
+    rows = db.exec(select(KnowledgeBase).where(KnowledgeBase.tenant_id == tenant_id)).all()
+    return {row.id: ensure_knowledge_base_version(db, row) for row in rows}
 
 
 def _get_knowledge_base(db: Session, tenant_id: str, knowledge_base_id: str) -> KnowledgeBase:

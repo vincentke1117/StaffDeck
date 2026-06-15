@@ -16,9 +16,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
-from app.agents.branching import require_overall_agent
+from app.agents.branching import get_agent, require_overall_agent
 from app.db import get_session
-from app.db.models import GeneralSkill, ModelConfig, utc_now
+from app.db.models import AgentResourceBinding, GeneralSkill, ModelConfig, utc_now
 from app.general_skills import (
     GeneralSkillClawHubImportRequest,
     GeneralSkillImportRequest,
@@ -37,7 +37,11 @@ MAX_CLAWHUB_FILE_BYTES = 2 * 1024 * 1024
 MAX_CLAWHUB_FILES = 240
 
 
-def general_skill_read(row: GeneralSkill) -> GeneralSkillRead:
+def _agent_id_or_none(agent_id: object | None) -> str | None:
+    return agent_id if isinstance(agent_id, str) and agent_id else None
+
+
+def general_skill_read(row: GeneralSkill, status_override: str | None = None) -> GeneralSkillRead:
     return GeneralSkillRead(
         id=row.id,
         tenant_id=row.tenant_id,
@@ -48,7 +52,7 @@ def general_skill_read(row: GeneralSkill) -> GeneralSkillRead:
         skill_markdown=row.skill_markdown,
         skill_files=[GeneralSkillFile.model_validate(item) for item in _skill_files_or_markdown(row)],
         metadata=row.metadata_json or {},
-        status=row.status,
+        status=status_override or row.status,
         permissions=row.permissions_json or {},
         runtime_config=row.runtime_config_json or {},
         created_at=row.created_at.isoformat(),
@@ -174,8 +178,40 @@ def import_clawhub_skill(
 def list_general_skills(
     tenant_id: str = Query(...),
     db: Session = Depends(get_session),
+    agent_id: str | None = Query(None),
 ) -> list[GeneralSkillRead]:
     ensure_tenant(db, tenant_id)
+    agent_id = _agent_id_or_none(agent_id)
+    agent = get_agent(db, tenant_id, agent_id)
+    if agent and not agent.is_overall:
+        bindings = db.exec(
+            select(AgentResourceBinding)
+            .where(
+                AgentResourceBinding.tenant_id == tenant_id,
+                AgentResourceBinding.agent_id == agent.id,
+                AgentResourceBinding.resource_type == "general_skill",
+            )
+            .order_by(AgentResourceBinding.updated_at.desc())
+        ).all()
+        if not bindings:
+            return []
+        rows_by_id = {
+            row.id: row
+            for row in db.exec(
+                select(GeneralSkill).where(
+                    GeneralSkill.tenant_id == tenant_id,
+                    GeneralSkill.id.in_([binding.resource_id for binding in bindings]),
+                )
+            ).all()
+        }
+        return [
+            general_skill_read(
+                rows_by_id[binding.resource_id],
+                status_override="published" if binding.status == "active" else "archived",
+            )
+            for binding in bindings
+            if binding.resource_id in rows_by_id
+        ]
     rows = db.exec(
         select(GeneralSkill).where(GeneralSkill.tenant_id == tenant_id).order_by(GeneralSkill.updated_at.desc())
     ).all()
@@ -196,8 +232,18 @@ def publish_general_skill(
     slug: str,
     tenant_id: str = Query(...),
     db: Session = Depends(get_session),
+    agent_id: str | None = Query(None),
 ) -> GeneralSkillRead:
     row = _get_general_skill(db, tenant_id, slug)
+    agent_id = _agent_id_or_none(agent_id)
+    agent = get_agent(db, tenant_id, agent_id)
+    if agent and not agent.is_overall:
+        binding = _ensure_general_skill_binding(db, tenant_id, agent.id, row.id)
+        binding.status = "active"
+        binding.updated_at = utc_now()
+        db.add(binding)
+        db.commit()
+        return general_skill_read(row, status_override="published")
     row.status = "published"
     row.updated_at = utc_now()
     db.add(row)
@@ -211,8 +257,18 @@ def archive_general_skill(
     slug: str,
     tenant_id: str = Query(...),
     db: Session = Depends(get_session),
+    agent_id: str | None = Query(None),
 ) -> GeneralSkillRead:
     row = _get_general_skill(db, tenant_id, slug)
+    agent_id = _agent_id_or_none(agent_id)
+    agent = get_agent(db, tenant_id, agent_id)
+    if agent and not agent.is_overall:
+        binding = _ensure_general_skill_binding(db, tenant_id, agent.id, row.id)
+        binding.status = "inactive"
+        binding.updated_at = utc_now()
+        db.add(binding)
+        db.commit()
+        return general_skill_read(row, status_override="archived")
     row.status = "archived"
     row.updated_at = utc_now()
     db.add(row)
@@ -226,8 +282,9 @@ def delete_general_skill(
     slug: str,
     tenant_id: str = Query(...),
     db: Session = Depends(get_session),
-    agent_id: str | None = None,
+    agent_id: str | None = Query(None),
 ) -> dict[str, str]:
+    agent_id = _agent_id_or_none(agent_id)
     require_overall_agent(db, tenant_id, agent_id)
     row = _get_general_skill(db, tenant_id, slug)
     db.delete(row)
@@ -302,6 +359,35 @@ def _get_general_skill(db: Session, tenant_id: str, slug: str) -> GeneralSkill:
     ).first()
     if not row:
         raise HTTPException(status_code=404, detail="General skill not found")
+    return row
+
+
+def _ensure_general_skill_binding(
+    db: Session,
+    tenant_id: str,
+    agent_id: str,
+    general_skill_id: str,
+) -> AgentResourceBinding:
+    row = db.exec(
+        select(AgentResourceBinding).where(
+            AgentResourceBinding.tenant_id == tenant_id,
+            AgentResourceBinding.agent_id == agent_id,
+            AgentResourceBinding.resource_type == "general_skill",
+            AgentResourceBinding.resource_id == general_skill_id,
+        )
+    ).first()
+    if row:
+        return row
+    row = AgentResourceBinding(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        resource_type="general_skill",
+        resource_id=general_skill_id,
+        status="active",
+        metadata_json={},
+    )
+    db.add(row)
+    db.flush()
     return row
 
 

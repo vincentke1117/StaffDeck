@@ -92,6 +92,13 @@ class KnowledgeDocumentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class KnowledgeDocumentUpdateRequest(BaseModel):
+    tenant_id: str
+    title: Optional[str] = None
+    status: Optional[Literal["ready", "processing", "failed", "archived"]] = None
+    metadata: Optional[dict[str, Any]] = None
+
+
 class KnowledgeBucketRead(BaseModel):
     id: str
     tenant_id: str
@@ -110,6 +117,13 @@ class KnowledgeBucketRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class KnowledgeBucketUpdateRequest(BaseModel):
+    tenant_id: str
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
+
+
 class KnowledgeChunkRead(BaseModel):
     id: str
     tenant_id: str
@@ -125,6 +139,13 @@ class KnowledgeChunkRead(BaseModel):
     updated_at: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class KnowledgeChunkUpdateRequest(BaseModel):
+    tenant_id: str
+    content: Optional[str] = None
+    summary: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
 
 
 class KnowledgeSearchRequest(BaseModel):

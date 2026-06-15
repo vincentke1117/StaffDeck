@@ -4615,6 +4615,14 @@ pre {
   background: var(--surface);
 }
 
+.knowledge-base-card-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: start;
+  gap: 10px;
+}
+
 .knowledge-base-card .ant-typography {
   margin-bottom: 0;
 }
@@ -4643,46 +4651,6 @@ pre {
 
 .knowledge-upload-card .ant-card-body {
   padding: 18px;
-}
-
-.knowledge-demo-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin: 0 0 16px;
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
-  border-radius: 16px;
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--accent-soft) 36%, transparent), transparent 54%),
-    var(--surface);
-}
-
-.knowledge-demo-copy {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-}
-
-.knowledge-demo-copy > .anticon {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--accent-soft) 56%, var(--surface));
-  font-size: 20px;
-}
-
-.knowledge-demo-copy > div {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
 }
 
 .knowledge-upload-card .ant-upload-wrapper,
@@ -4878,6 +4846,32 @@ pre {
   font-size: 12px;
 }
 
+.knowledge-editor-modal .ant-modal-body {
+  max-height: min(72vh, 760px);
+  overflow: auto;
+}
+
+.knowledge-chunk-editor-list {
+  display: grid;
+  gap: 12px;
+}
+
+.knowledge-chunk-editor {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--surface-soft);
+}
+
+.knowledge-chunk-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .agents-page {
   display: grid;
   gap: 18px;
@@ -5051,11 +5045,6 @@ pre {
 
   .knowledge-upload-controls {
     align-items: stretch;
-  }
-
-  .knowledge-demo-panel {
-    align-items: stretch;
-    flex-direction: column;
   }
 
   .knowledge-upload-controls .ant-space,

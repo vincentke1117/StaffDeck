@@ -83,6 +83,21 @@ export type KnowledgeBucketRead = {
   updated_at: string;
 };
 
+export type KnowledgeChunkRead = {
+  id: string;
+  tenant_id: string;
+  knowledge_base_id: string;
+  document_id: string;
+  bucket_id: string;
+  chunk_index: number;
+  content: string;
+  summary?: string;
+  source_ref?: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
 export type KnowledgeDiscoveryRead = {
   id: string;
   tenant_id: string;
