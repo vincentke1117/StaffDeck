@@ -4733,6 +4733,55 @@ pre {
   width: min(240px, 100%);
 }
 
+.knowledge-base-target-strip {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 2px 2px 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.knowledge-base-target {
+  min-width: min(220px, 72vw);
+  max-width: 280px;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.knowledge-base-target span,
+.knowledge-base-target small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-base-target span {
+  font-weight: 760;
+}
+
+.knowledge-base-target small {
+  color: var(--muted);
+}
+
+.knowledge-base-target.is-active {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 78%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
 .knowledge-upload-card .ant-card-body {
   padding: 18px;
 }
@@ -4798,9 +4847,70 @@ pre {
 
 .knowledge-job-head {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
+}
+
+.knowledge-job-head > div {
+  min-width: 0;
+}
+
+.knowledge-job-head .ant-typography {
+  overflow-wrap: anywhere;
+}
+
+.knowledge-stage-track {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
+  gap: 8px 10px;
+  margin: 10px 0 8px;
+}
+
+.knowledge-stage-step {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.knowledge-stage-step span {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.knowledge-stage-step small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-stage-step.is-done span {
+  background: var(--accent);
+}
+
+.knowledge-stage-step.is-running {
+  color: var(--foreground);
+  font-weight: 760;
+}
+
+.knowledge-stage-step.is-running span {
+  background: #16a34a;
+  box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.12);
+}
+
+.knowledge-job-detail {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
 }
 
 .knowledge-doc-link {

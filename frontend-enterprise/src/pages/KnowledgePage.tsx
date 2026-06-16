@@ -43,6 +43,26 @@ type KnowledgeBaseVersionRead = {
   created_at: string;
 };
 
+type IngestStepView = {
+  key: string;
+  label: string;
+  progress: number;
+  status: 'pending' | 'running' | 'done';
+};
+
+const DEFAULT_INGEST_STEPS: IngestStepView[] = [
+  { key: 'queued', label: '排队中', progress: 0, status: 'pending' },
+  { key: 'parsing', label: '解析', progress: 0.08, status: 'pending' },
+  { key: 'normalizing', label: '整理', progress: 0.16, status: 'pending' },
+  { key: 'documenting', label: '写入', progress: 0.24, status: 'pending' },
+  { key: 'bucketing', label: '分桶', progress: 0.36, status: 'pending' },
+  { key: 'bucket_writing', label: '桶摘要', progress: 0.48, status: 'pending' },
+  { key: 'chunking', label: '切片', progress: 0.62, status: 'pending' },
+  { key: 'summarizing', label: '整理', progress: 0.74, status: 'pending' },
+  { key: 'discovering', label: '发现', progress: 0.88, status: 'pending' },
+  { key: 'done', label: '完成', progress: 1, status: 'pending' },
+];
+
 export default function KnowledgeManagePage() {
   const navigate = useNavigate();
   const [documents, setDocuments] = useState<KnowledgeDocumentRead[]>([]);
@@ -817,7 +837,11 @@ export function KnowledgeAddPage() {
       const suffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
       const rows = await api.get<KnowledgeBaseRead[]>(`/api/enterprise/knowledge-bases?tenant_id=${TENANT_ID}${suffix}`);
       setKnowledgeBases(rows);
-      setSelectedKnowledgeBaseId((current) => current || rows.find((item) => item.status === 'active')?.id || rows[0]?.id || '');
+      setSelectedKnowledgeBaseId((current) =>
+        rows.some((item) => item.id === current)
+          ? current
+          : rows.find((item) => item.status === 'active')?.id || rows[0]?.id || '',
+      );
     } catch (error) {
       message.error(error instanceof Error ? error.message : '加载知识库失败');
     }
@@ -835,7 +859,7 @@ export function KnowledgeAddPage() {
         name,
         description,
       });
-      setKnowledgeBases((prev) => [row, ...prev]);
+      setKnowledgeBases((prev) => [row, ...prev.filter((item) => item.id !== row.id)]);
       setSelectedKnowledgeBaseId(row.id);
       return row;
     } catch (error) {
@@ -910,6 +934,23 @@ export function KnowledgeAddPage() {
             <Button onClick={() => void createKnowledgeBase()}>新建知识库</Button>
           </Space>
         </div>
+        {knowledgeBases.length > 0 && (
+          <div className="knowledge-base-target-strip">
+            {knowledgeBases.map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                className={`knowledge-base-target ${item.id === selectedKnowledgeBaseId ? 'is-active' : ''}`}
+                onClick={() => setSelectedKnowledgeBaseId(item.id)}
+              >
+                <span>{item.name}</span>
+                <small>
+                  {item.document_count} 文档 / {item.bucket_count} 桶 / {item.chunk_count} 片段
+                </small>
+              </button>
+            ))}
+          </div>
+        )}
         <Dragger
           multiple
           showUploadList={false}
@@ -935,23 +976,100 @@ export function KnowledgeAddPage() {
         ) : (
           <div className="knowledge-jobs">
             {Object.values(jobs).map((job) => (
-              <div className="knowledge-job" key={job.id}>
-                <div className="knowledge-job-head">
-                  <div>
-                    <Typography.Text strong>{job.filename}</Typography.Text>
-                    <Typography.Text type="secondary"> · {job.stage}</Typography.Text>
-                  </div>
-                  {statusTag(job.status)}
-                </div>
-                <Progress percent={Math.round(job.progress * 100)} status={job.status === 'failed' ? 'exception' : undefined} />
-                {job.error && <Typography.Text type="danger">{job.error}</Typography.Text>}
-              </div>
+              <KnowledgeJobCard job={job} key={job.id} />
             ))}
           </div>
         )}
       </Card>
     </div>
   );
+}
+
+function KnowledgeJobCard({ job }: { job: KnowledgeIngestJobRead }) {
+  const steps = ingestSteps(job);
+  const stageLabel = stringFromMetadata(job.metadata.stage_label) || stageLabelFallback(job.stage);
+  const stageDetail = stringFromMetadata(job.metadata.stage_detail);
+  return (
+    <div className="knowledge-job">
+      <div className="knowledge-job-head">
+        <div>
+          <Typography.Text strong>{job.filename}</Typography.Text>
+          <Typography.Text type="secondary"> · {stageLabel}</Typography.Text>
+        </div>
+        {statusTag(job.status)}
+      </div>
+      <SmoothProgress job={job} />
+      <div className="knowledge-stage-track">
+        {steps.map((step) => (
+          <div className={`knowledge-stage-step is-${step.status}`} key={step.key}>
+            <span />
+            <small>{step.label}</small>
+          </div>
+        ))}
+      </div>
+      {stageDetail && <Typography.Text className="knowledge-job-detail">{stageDetail}</Typography.Text>}
+      {job.error && <Typography.Text type="danger">{job.error}</Typography.Text>}
+    </div>
+  );
+}
+
+function SmoothProgress({ job }: { job: KnowledgeIngestJobRead }) {
+  const target = Math.max(0, Math.min(100, Math.round((job.progress || 0) * 100)));
+  const [displayProgress, setDisplayProgress] = useState(target);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setDisplayProgress((current) => {
+        if (current === target) return current;
+        const diff = target - current;
+        const step = Math.max(1, Math.ceil(Math.abs(diff) / 14));
+        return current + Math.sign(diff) * Math.min(Math.abs(diff), step);
+      });
+    }, 80);
+    return () => window.clearInterval(timer);
+  }, [target]);
+
+  return (
+    <Progress
+      percent={displayProgress}
+      status={job.status === 'failed' ? 'exception' : undefined}
+      strokeColor={job.status === 'failed' ? undefined : { '0%': '#0f7f74', '100%': '#16a34a' }}
+    />
+  );
+}
+
+function ingestSteps(job: KnowledgeIngestJobRead): IngestStepView[] {
+  const raw = job.metadata.ingest_steps;
+  if (Array.isArray(raw)) {
+    return raw.map((item, index) => {
+      const record = item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
+      const status = record.status === 'running' || record.status === 'done' ? record.status : 'pending';
+      return {
+        key: String(record.key || `step_${index}`),
+        label: String(record.label || DEFAULT_INGEST_STEPS[index]?.label || `阶段 ${index + 1}`),
+        progress: Number(record.progress || 0),
+        status,
+      };
+    });
+  }
+  const currentProgress = job.progress || 0;
+  return DEFAULT_INGEST_STEPS.map((step) => ({
+    ...step,
+    status:
+      job.stage === step.key
+        ? 'running'
+        : step.progress < currentProgress || job.stage === 'done'
+        ? 'done'
+        : 'pending',
+  }));
+}
+
+function stageLabelFallback(stage: string): string {
+  return DEFAULT_INGEST_STEPS.find((item) => item.key === stage)?.label || stage || '处理中';
+}
+
+function stringFromMetadata(value: unknown): string {
+  return typeof value === 'string' ? value : '';
 }
 
 function DiscoveryColumn({

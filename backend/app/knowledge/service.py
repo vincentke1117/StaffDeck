@@ -43,6 +43,21 @@ CHUNK_CHARS = 1800
 BUCKET_SECTION_CHARS = 6000
 PARAGRAPH_GROUP_CHARS = 4200
 
+INGEST_STAGES: list[dict[str, Any]] = [
+    {"key": "queued", "label": "排队中", "progress": 0.0},
+    {"key": "parsing", "label": "解析文档", "progress": 0.08},
+    {"key": "normalizing", "label": "规范化文本", "progress": 0.16},
+    {"key": "documenting", "label": "写入文档", "progress": 0.24},
+    {"key": "bucketing", "label": "规划知识桶", "progress": 0.36},
+    {"key": "bucket_writing", "label": "写入知识桶", "progress": 0.48},
+    {"key": "chunking", "label": "切分知识片段", "progress": 0.62},
+    {"key": "summarizing", "label": "整理片段摘要", "progress": 0.74},
+    {"key": "discovering", "label": "发现技能和工具建议", "progress": 0.88},
+    {"key": "done", "label": "完成入库", "progress": 1.0},
+]
+
+INGEST_STAGE_BY_KEY = {stage["key"]: stage for stage in INGEST_STAGES}
+
 
 @dataclass
 class IngestPayload:
@@ -89,15 +104,32 @@ class KnowledgeService:
         job = self.db.get(KnowledgeIngestJob, job_id)
         if not job:
             return
-        self._update_job(job, status="running", stage="parsing", progress=0.05, started_at=utc_now())
+        self._update_ingest_stage(
+            job,
+            "parsing",
+            status="running",
+            started_at=utc_now(),
+            detail="正在识别文件格式并抽取正文",
+        )
         metadata = job.metadata_json or {}
         try:
             content = base64.b64decode(str(metadata.get("content_base64") or ""))
             text, file_type = extract_text(job.filename, content)
+            self._update_ingest_stage(
+                job,
+                "normalizing",
+                detail=f"已抽取 {file_type} 文本，正在清理空行和段落",
+            )
             normalized_text = _normalize_text(text)
             if not normalized_text:
                 raise KnowledgeParseError("文档没有可用文本内容。")
 
+            self._update_ingest_stage(
+                job,
+                "documenting",
+                detail=f"已获得 {len(normalized_text):,} 字符，正在写入文档记录",
+                stats={"char_count": len(normalized_text), "file_type": file_type},
+            )
             document = KnowledgeDocument(
                 tenant_id=job.tenant_id,
                 knowledge_base_id=job.knowledge_base_id,
@@ -115,10 +147,26 @@ class KnowledgeService:
             self.db.commit()
             self.db.refresh(document)
             job.document_id = document.id
-            self._update_job(job, stage="bucketing", progress=0.25)
+            self._update_ingest_stage(
+                job,
+                "bucketing",
+                detail="正在按章节和段落规划知识桶",
+                document_id=document.id,
+            )
 
             buckets = self._build_buckets(job.tenant_id, job.knowledge_base_id, document, normalized_text)
-            self._update_job(job, stage="chunking", progress=0.55)
+            self._update_ingest_stage(
+                job,
+                "bucket_writing",
+                detail=f"已生成 {len(buckets)} 个知识桶，正在持久化桶摘要",
+                stats={"bucket_count": len(buckets)},
+            )
+            self._update_ingest_stage(
+                job,
+                "chunking",
+                detail="正在按段落预算切分知识片段",
+                stats={"bucket_count": len(buckets)},
+            )
             chunk_count = self._build_chunks(job.tenant_id, job.knowledge_base_id, document, buckets)
 
             document.bucket_count = len(buckets)
@@ -126,10 +174,28 @@ class KnowledgeService:
             document.status = "ready"
             document.updated_at = utc_now()
             self.db.add(document)
-            self._update_job(job, stage="discovering", progress=0.78)
+            self._update_ingest_stage(
+                job,
+                "summarizing",
+                detail=f"已写入 {chunk_count} 个知识片段，正在整理入库结果",
+                stats={"bucket_count": len(buckets), "chunk_count": chunk_count},
+            )
+            self._update_ingest_stage(
+                job,
+                "discovering",
+                detail="正在从知识中发现可确认的技能和工具建议",
+                stats={"bucket_count": len(buckets), "chunk_count": chunk_count},
+            )
 
             self._discover_from_document(job.tenant_id, job.knowledge_base_id, document, buckets)
-            self._update_job(job, status="succeeded", stage="done", progress=1.0, finished_at=utc_now())
+            self._update_ingest_stage(
+                job,
+                "done",
+                status="succeeded",
+                finished_at=utc_now(),
+                detail=f"完成入库：{len(buckets)} 个知识桶，{chunk_count} 个片段",
+                stats={"bucket_count": len(buckets), "chunk_count": chunk_count},
+            )
             self._clear_embedded_content(job)
         except Exception as exc:  # noqa: BLE001 - persist stable job failure.
             if job.document_id:
@@ -139,7 +205,14 @@ class KnowledgeService:
                     document.error = str(exc)
                     document.updated_at = utc_now()
                     self.db.add(document)
-            self._update_job(job, status="failed", stage="failed", error=str(exc), finished_at=utc_now())
+            self._update_ingest_stage(
+                job,
+                "failed",
+                status="failed",
+                error=str(exc),
+                finished_at=utc_now(),
+                detail=str(exc),
+            )
             self._clear_embedded_content(job)
 
     def search(self, request: KnowledgeSearchRequest, model_config: ModelConfig | None = None) -> KnowledgeSearchResponse:
@@ -488,6 +561,25 @@ class KnowledgeService:
         self.db.commit()
         self.db.refresh(job)
 
+    def _update_ingest_stage(
+        self,
+        job: KnowledgeIngestJob,
+        stage: str,
+        detail: str = "",
+        stats: dict[str, Any] | None = None,
+        **changes: Any,
+    ) -> None:
+        stage_def = INGEST_STAGE_BY_KEY.get(stage)
+        progress = float(stage_def["progress"]) if stage_def else float(job.progress or 0.0)
+        metadata = dict(job.metadata_json or {})
+        metadata["stage_label"] = str(stage_def["label"] if stage_def else stage)
+        metadata["stage_detail"] = detail
+        if stats is not None:
+            metadata["stage_stats"] = stats
+        metadata["ingest_steps"] = _ingest_steps_for(stage, progress, changes.get("status") or job.status)
+        job.metadata_json = metadata
+        self._update_job(job, stage=stage, progress=progress, **changes)
+
     def _clear_embedded_content(self, job: KnowledgeIngestJob) -> None:
         metadata = dict(job.metadata_json or {})
         metadata.pop("content_base64", None)
@@ -656,6 +748,30 @@ def _split_large_paragraph(text: str, max_chars: int) -> list[str]:
 
 def _hard_split_text(text: str, max_chars: int) -> list[str]:
     return [text[index:index + max_chars].strip() for index in range(0, len(text), max_chars) if text[index:index + max_chars].strip()]
+
+
+def _ingest_steps_for(stage: str, progress: float, status: str) -> list[dict[str, Any]]:
+    if stage == "failed" or status == "failed":
+        return [
+            {
+                **item,
+                "status": "done" if float(item["progress"]) < progress else "pending",
+            }
+            for item in INGEST_STAGES
+        ]
+    return [
+        {
+            **item,
+            "status": (
+                "running"
+                if item["key"] == stage
+                else "done"
+                if float(item["progress"]) < progress or (stage == "done" and item["key"] == "done")
+                else "pending"
+            ),
+        }
+        for item in INGEST_STAGES
+    ]
 
 
 def _fallback_bucket_specs(sections: list[str]) -> list[dict[str, Any]]:
