@@ -1437,9 +1437,6 @@ export default function ChatWindowPage() {
               {sessionId ? '当前会话智能体' : '新会话默认智能体'}
             </span>
             <span className="chat-agent-name">{displayedAgent?.name || '暂无可用智能体'}</span>
-            <span className="chat-agent-description">
-              {displayedAgent?.description || '新建会话时选择智能体'}
-            </span>
           </div>
         </div>
       </aside>
