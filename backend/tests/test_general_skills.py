@@ -914,6 +914,71 @@ def test_general_skill_runner_executes_bash_package_command(monkeypatch) -> None
     assert plan_events[0]["runtime"] == "bash"
 
 
+def test_general_skill_runner_has_requests_in_runtime(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_init(self, model_config):  # noqa: ANN001
+        return None
+
+    def fake_generate_json(self, system_prompt, payload):  # noqa: ANN001
+        prompt_text = str(system_prompt)
+        if "通用技能执行器" in prompt_text:
+            calls.append("runner")
+            return {
+                "runtime": "python",
+                "code": (
+                    "import json\n"
+                    "import requests\n"
+                    "payload=json.loads(input())\n"
+                    "print(json.dumps({"
+                    "'success': True, "
+                    "'query': payload['query'], "
+                    "'requests_available': bool(requests.__version__)"
+                    "}, ensure_ascii=False))\n"
+                ),
+                "rationale": "验证通用技能运行环境包含 requests。",
+            }
+        if "通用技能运行结果审查器" in prompt_text:
+            calls.append("review")
+            assert payload["structured_result"]["requests_available"] is True
+            return {
+                "result_sufficient": True,
+                "needs_retry": False,
+                "terminal": False,
+                "reason": "requests 可用。",
+            }
+        if "通用技能结果回复器" in prompt_text:
+            calls.append("reply")
+            return {"reply": "requests 可用。"}
+        raise AssertionError("unexpected prompt")
+
+    monkeypatch.setattr(LLMClient, "__init__", fake_init)
+    monkeypatch.setattr(LLMClient, "generate_json", fake_generate_json)
+
+    skill = GeneralSkill(
+        tenant_id="tenant_demo",
+        slug="runtime-check",
+        name="运行环境检查",
+        description="检查基础库",
+        skill_markdown="# 运行环境检查\n需要 requests。",
+        status="published",
+    )
+    model_config = ModelConfig(
+        tenant_id="tenant_demo",
+        name="Fake model",
+        api_key_encrypted=encrypt_secret("test-key"),
+        model="fake",
+        is_default=True,
+        enabled=True,
+    )
+
+    response = GeneralSkillRunner().run(skill, "检查 requests", model_config, max_attempts=1)
+
+    assert response.reply == "requests 可用。"
+    assert response.structured_result["requests_available"] is True
+    assert calls == ["runner", "review", "reply"]
+
+
 def test_general_skill_prompt_rejects_unlisted_external_apis() -> None:
     prompt = (Path(__file__).resolve().parents[1] / "app" / "llm" / "prompts" / "general_skill_runner_prompt.md").read_text(
         encoding="utf-8"

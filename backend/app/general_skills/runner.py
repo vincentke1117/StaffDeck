@@ -4,7 +4,6 @@ import json
 import os
 import selectors
 import subprocess
-import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -20,6 +19,7 @@ from app.general_skills.schema import (
     GeneralSkillRunResponse,
     GeneralSkillSelection,
 )
+from app.general_skills.runtime_env import GeneralSkillRuntimeError, ensure_runtime_python, runtime_environment
 from app.llm import LLMClient, LLMError
 
 
@@ -445,7 +445,28 @@ class GeneralSkillRunner:
             },
             event_sink,
         )
-        env = os.environ.copy()
+        try:
+            runtime_python = ensure_runtime_python()
+            env = runtime_environment(os.environ.copy())
+        except GeneralSkillRuntimeError as exc:
+            structured = {
+                "success": False,
+                "error": "runtime_environment_error",
+                "message": str(exc),
+                "retryable": False,
+            }
+            _emit(
+                trace,
+                {
+                    "phase": "runtime_environment_failed",
+                    "message": "通用技能运行环境准备失败",
+                    "attempt": attempt,
+                    "runtime": runtime,
+                    "structured_result": structured,
+                },
+                event_sink,
+            )
+            return "", str(exc), structured
         env.update(
             {
                 "ARGUMENTS": query,
@@ -457,7 +478,7 @@ class GeneralSkillRunner:
                 "SKILL_FILES_JSON": json.dumps([file["path"] for file in _skill_files(skill)], ensure_ascii=False),
             }
         )
-        command = ["/bin/bash", str(runner_path)] if runtime == "bash" else [sys.executable, str(runner_path)]
+        command = ["/bin/bash", str(runner_path)] if runtime == "bash" else [str(runtime_python), str(runner_path)]
         cwd = str(skill_dir if runtime == "bash" else run_dir)
         process = subprocess.Popen(
             command,
