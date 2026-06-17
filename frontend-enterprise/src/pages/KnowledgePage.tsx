@@ -66,7 +66,6 @@ export default function KnowledgeManagePage() {
   const navigate = useNavigate();
   const [documents, setDocuments] = useState<KnowledgeDocumentRead[]>([]);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseRead[]>([]);
-  const [discoveries, setDiscoveries] = useState<KnowledgeDiscoveryRead[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocumentRead | null>(null);
   const [buckets, setBuckets] = useState<KnowledgeBucketRead[]>([]);
   const [loading, setLoading] = useState(false);
@@ -94,8 +93,6 @@ export default function KnowledgeManagePage() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchResult, setSearchResult] = useState<KnowledgeSearchResponse | null>(null);
 
-  const actionableDiscoveries = discoveries.filter((item) => item.status === 'pending' && item.suggestion_type !== 'warning');
-  const warningDiscoveries = discoveries.filter((item) => item.suggestion_type === 'warning' || item.status !== 'pending');
   const currentAgent = useMemo(() => agents.find((item) => item.id === agentId), [agents, agentId]);
   const isOverallAgent = !currentAgent || currentAgent.is_overall;
   const visibleKnowledgeBases = useMemo(
@@ -153,14 +150,12 @@ export default function KnowledgeManagePage() {
     setLoading(true);
     const suffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
     try {
-      const [docRows, discoveryRows, kbRows, agentRows] = await Promise.all([
+      const [docRows, kbRows, agentRows] = await Promise.all([
         api.get<KnowledgeDocumentRead[]>(`/api/enterprise/knowledge/documents?tenant_id=${TENANT_ID}&include_all_versions=true${suffix}`),
-        api.get<KnowledgeDiscoveryRead[]>(`/api/enterprise/knowledge/discoveries?tenant_id=${TENANT_ID}${suffix}`),
         api.get<KnowledgeBaseRead[]>(`/api/enterprise/knowledge-bases?tenant_id=${TENANT_ID}${suffix}`),
         api.get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`),
       ]);
       setDocuments(docRows);
-      setDiscoveries(discoveryRows);
       setKnowledgeBases(kbRows);
       setAgents(agentRows);
       const scopedDocRows =
@@ -238,26 +233,6 @@ export default function KnowledgeManagePage() {
       message.error(error instanceof Error ? error.message : '知识检索失败');
     } finally {
       setSearchLoading(false);
-    }
-  }
-
-  async function confirmDiscovery(item: KnowledgeDiscoveryRead) {
-    try {
-      await api.post(`/api/enterprise/knowledge/discoveries/${item.id}/confirm?tenant_id=${TENANT_ID}`);
-      message.success('已确认建议');
-      await refresh();
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '确认失败');
-    }
-  }
-
-  async function rejectDiscovery(item: KnowledgeDiscoveryRead) {
-    try {
-      await api.post(`/api/enterprise/knowledge/discoveries/${item.id}/reject?tenant_id=${TENANT_ID}`);
-      message.success('已拒绝建议');
-      await refresh();
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '拒绝失败');
     }
   }
 
@@ -524,7 +499,7 @@ export default function KnowledgeManagePage() {
       <div className="knowledge-hero">
         <div>
           <Typography.Title level={3}>知识管理</Typography.Title>
-          <Typography.Text type="secondary">查看已入库文档、分桶切片结果，以及待确认的技能和工具发现。</Typography.Text>
+          <Typography.Text type="secondary">管理已入库知识库，查看文档卡片、知识结构和检索证据。</Typography.Text>
         </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => refresh()} loading={loading}>刷新</Button>
@@ -585,7 +560,7 @@ export default function KnowledgeManagePage() {
                           trigger={['click']}
                           menu={{
                             items: [
-                              { key: 'edit', icon: <EditOutlined />, label: '编辑' },
+                              { key: 'edit', icon: <EditOutlined />, label: '详情' },
                               { key: 'versions', icon: <HistoryOutlined />, label: '版本管理' },
                               !isOverallAgent ? { key: 'sync', label: '同步整体' } : null,
                               !isOverallAgent ? { key: 'promote', label: '推送到整体' } : null,
@@ -661,29 +636,6 @@ export default function KnowledgeManagePage() {
         </Space>
       </Card>
 
-      <Card className="knowledge-card knowledge-card-solid" title="自发现建议">
-        <Row gutter={[16, 16]}>
-          <Col xs={24} lg={13}>
-            <DiscoveryColumn
-              title="可确认建议"
-              description="模型从知识中发现的技能和工具草案。确认后才会进入系统。"
-              items={actionableDiscoveries}
-              onConfirm={confirmDiscovery}
-              onReject={rejectDiscovery}
-            />
-          </Col>
-          <Col xs={24} lg={11}>
-            <DiscoveryColumn
-              title="需补充信息"
-              description="模型发现了线索，但证据、接口或字段不足，暂不能直接入库。"
-              items={warningDiscoveries}
-              onConfirm={confirmDiscovery}
-              onReject={rejectDiscovery}
-              readonly
-            />
-          </Col>
-        </Row>
-      </Card>
       <Modal
         open={importOpen}
         title="从其他智能体导入知识库"
@@ -729,7 +681,7 @@ export default function KnowledgeManagePage() {
       </Modal>
       <Modal
         open={Boolean(editingKnowledgeBase)}
-        title="编辑知识库"
+        title="知识库详情"
         okText="保存"
         cancelText="取消"
         onOk={() => void saveKnowledgeBase()}
@@ -880,6 +832,9 @@ export function KnowledgeAddPage() {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseRead[]>([]);
   const [jobs, setJobs] = useState<Record<string, KnowledgeIngestJobRead>>({});
   const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [checkedDiscoveryJobIds, setCheckedDiscoveryJobIds] = useState<string[]>([]);
+  const [pendingDiscoveries, setPendingDiscoveries] = useState<KnowledgeDiscoveryRead[]>([]);
+  const [discoveryModalOpen, setDiscoveryModalOpen] = useState(false);
   const activeJobs = useMemo(
     () => Object.values(jobs).filter((job) => ['queued', 'running'].includes(job.status)),
     [jobs],
@@ -914,6 +869,14 @@ export function KnowledgeAddPage() {
     return () => window.clearInterval(timer);
   }, [activeJobs]);
 
+  useEffect(() => {
+    Object.values(jobs)
+      .filter((job) => job.status === 'completed' && !checkedDiscoveryJobIds.includes(job.id))
+      .forEach((job) => {
+        void loadDiscoveriesForJob(job);
+      });
+  }, [jobs, checkedDiscoveryJobIds, agentId]);
+
   async function refreshKnowledgeBases() {
     try {
       const suffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
@@ -939,6 +902,50 @@ export function KnowledgeAddPage() {
       message.success('已创建知识库和入库任务');
     } catch (error) {
       message.error(error instanceof Error ? error.message : '上传失败');
+    }
+  }
+
+  async function loadDiscoveriesForJob(job: KnowledgeIngestJobRead) {
+    setCheckedDiscoveryJobIds((prev) => (prev.includes(job.id) ? prev : [...prev, job.id]));
+    try {
+      const suffix = agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
+      const rows = await api.get<KnowledgeDiscoveryRead[]>(`/api/enterprise/knowledge/discoveries?tenant_id=${TENANT_ID}${suffix}`);
+      const next = rows.filter(
+        (item) =>
+          item.status === 'pending' &&
+          item.suggestion_type !== 'warning' &&
+          item.knowledge_base_id === job.knowledge_base_id &&
+          (!job.document_id || item.document_id === job.document_id),
+      );
+      if (next.length === 0) return;
+      setPendingDiscoveries((current) => {
+        const seen = new Set(current.map((item) => item.id));
+        return [...current, ...next.filter((item) => !seen.has(item.id))];
+      });
+      setDiscoveryModalOpen(true);
+    } catch (error) {
+      message.warning(error instanceof Error ? error.message : '加载知识发现建议失败');
+    }
+  }
+
+  async function confirmDiscovery(item: KnowledgeDiscoveryRead) {
+    try {
+      await api.post(`/api/enterprise/knowledge/discoveries/${item.id}/confirm?tenant_id=${TENANT_ID}`);
+      message.success('已确认建议');
+      setPendingDiscoveries((current) => current.filter((entry) => entry.id !== item.id));
+      await refreshKnowledgeBases();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '确认失败');
+    }
+  }
+
+  async function rejectDiscovery(item: KnowledgeDiscoveryRead) {
+    try {
+      await api.post(`/api/enterprise/knowledge/discoveries/${item.id}/reject?tenant_id=${TENANT_ID}`);
+      message.success('已拒绝建议');
+      setPendingDiscoveries((current) => current.filter((entry) => entry.id !== item.id));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '拒绝失败');
     }
   }
 
@@ -1005,6 +1012,23 @@ export function KnowledgeAddPage() {
           </div>
         )}
       </Card>
+
+      <Modal
+        open={discoveryModalOpen && pendingDiscoveries.length > 0}
+        title="发现可新增资源"
+        footer={null}
+        width={820}
+        className="knowledge-discovery-modal"
+        onCancel={() => setDiscoveryModalOpen(false)}
+      >
+        <DiscoveryColumn
+          title="可确认建议"
+          description="模型从本次上传的知识中发现了技能或工具草案，确认后才会写入系统。"
+          items={pendingDiscoveries}
+          onConfirm={confirmDiscovery}
+          onReject={rejectDiscovery}
+        />
+      </Modal>
     </div>
   );
 }
@@ -1096,7 +1120,7 @@ function stringFromMetadata(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-type KnowledgeStructureView = 'sections' | 'buckets' | 'evidence';
+type KnowledgeDetailView = 'document' | 'sections' | 'buckets' | 'evidence';
 
 function PageIndexOverview({
   document,
@@ -1111,11 +1135,10 @@ function PageIndexOverview({
   onEditDocument: (document: KnowledgeDocumentRead) => void;
   onEditBucket: (bucket: KnowledgeBucketRead) => void | Promise<void>;
 }) {
-  const [activeView, setActiveView] = useState<KnowledgeStructureView>('sections');
+  const [detailView, setDetailView] = useState<KnowledgeDetailView | null>(null);
   const metadata = document.metadata || {};
   const documentCard = isRecord(metadata.document_card) ? metadata.document_card : {};
   const sectionTreeAll = Array.isArray(metadata.section_tree) ? metadata.section_tree.filter(isRecord) : [];
-  const sectionTree = sectionTreeAll.slice(0, 80);
   const chunkStats = isRecord(metadata.chunk_stats) ? metadata.chunk_stats : {};
   const bucketQuality = Array.isArray(metadata.bucket_quality) ? metadata.bucket_quality.filter(isRecord) : [];
   const qualityByBucketId = new Map(
@@ -1123,117 +1146,190 @@ function PageIndexOverview({
   );
   const sectionCount = Number(documentCard.section_count || sectionTreeAll.length || 0);
   const chunkCount = Number(chunkStats.total_chunks || document.chunk_count || 0);
-  const selectedPanelTitle =
-    activeView === 'sections' ? '章节结构' : activeView === 'buckets' ? '知识桶覆盖' : '证据片段';
+  const previewSections = sectionTreeAll.slice(0, 3);
+  const previewBuckets = buckets.slice(0, 3);
+  const representativeChunkIds = previewRepresentativeChunkIds(buckets);
+  const documentTitle = String(documentCard.title || document.title || knowledgeBase?.name || document.filename);
+  const documentSummary = String(documentCard.summary || '暂无文档摘要');
 
   return (
     <div className="knowledge-pageindex">
       <div className="knowledge-pageindex-card">
-        <div>
+        <div className="knowledge-document-card-body">
           <Typography.Text type="secondary">文档卡片</Typography.Text>
-          <Typography.Title level={5}>{String(documentCard.title || document.title || knowledgeBase?.name || document.filename)}</Typography.Title>
-          <Typography.Paragraph>{String(documentCard.summary || '暂无文档摘要')}</Typography.Paragraph>
+          <Typography.Title level={5}>{documentTitle}</Typography.Title>
+          <Typography.Paragraph ellipsis={{ rows: 3 }}>{documentSummary}</Typography.Paragraph>
         </div>
         <div className="knowledge-pageindex-actions">
-          <Button size="small" icon={<EditOutlined />} onClick={() => onEditDocument(document)}>
-            编辑文档
+          <Button size="small" icon={<EditOutlined />} onClick={() => setDetailView('document')}>
+            详情
           </Button>
         </div>
         <div className="knowledge-document-meta">
-          <button type="button" className="knowledge-stat-pill">
+          <button type="button" className="knowledge-stat-pill" onClick={() => setDetailView('document')}>
             <span>格式</span>
             <strong>{document.file_type || 'unknown'}</strong>
           </button>
-          <button type="button" className="knowledge-stat-pill" onClick={() => setActiveView('sections')}>
+          <button type="button" className="knowledge-stat-pill" onClick={() => setDetailView('sections')}>
             <span>章节</span>
             <strong>{sectionCount}</strong>
           </button>
-          <button type="button" className="knowledge-stat-pill" onClick={() => setActiveView('evidence')}>
+          <button type="button" className="knowledge-stat-pill" onClick={() => setDetailView('evidence')}>
             <span>证据片段</span>
             <strong>{chunkCount}</strong>
           </button>
-          <button type="button" className="knowledge-stat-pill" onClick={() => setActiveView('buckets')}>
+          <button type="button" className="knowledge-stat-pill" onClick={() => setDetailView('buckets')}>
             <span>知识桶</span>
             <strong>{buckets.length}</strong>
           </button>
         </div>
-        <div className="knowledge-structure-lineage">
-          <span>文档</span>
-          <RightOutlined />
-          <button type="button" onClick={() => setActiveView('sections')}>章节/段落</button>
-          <RightOutlined />
-          <button type="button" onClick={() => setActiveView('evidence')}>证据片段</button>
-          <em>知识桶是跨章节的主题索引，会覆盖若干章节和证据片段。</em>
-        </div>
       </div>
 
-      <div className="knowledge-structure-tabs">
-        {[
-          { key: 'sections', label: '章节结构', value: sectionCount },
-          { key: 'buckets', label: '知识桶覆盖', value: buckets.length },
-          { key: 'evidence', label: '证据片段', value: chunkCount },
-        ].map((item) => (
+      <div className="knowledge-overview-grid">
+        {([
+          {
+            key: 'sections',
+            title: '知识结构',
+            description: '按章节和自然段建立的可展开导航。',
+            count: sectionCount,
+            items: previewSections.map((section, index) => ({
+              title: sectionTitle(section, index),
+              summary: sectionSummary(section),
+            })),
+          },
+          {
+            key: 'buckets',
+            title: '知识桶',
+            description: '跨章节聚合出的主题索引，用于快速定位知识区域。',
+            count: buckets.length,
+            items: previewBuckets.map((bucket) => ({
+              title: bucket.title || bucket.bucket_key || '未命名知识桶',
+              summary: bucket.summary || '暂无摘要',
+            })),
+          },
+          {
+            key: 'evidence',
+            title: '证据片段',
+            description: '最终回复可引用的最小证据单元。',
+            count: chunkCount,
+            items: representativeChunkIds.map((chunkId) => ({
+              title: String(chunkId),
+              summary: '代表片段 ID，可在详情中查看来源映射。',
+            })),
+          },
+        ] as Array<{
+          key: Exclude<KnowledgeDetailView, 'document'>;
+          title: string;
+          description: string;
+          count: number;
+          items: Array<{ title: string; summary: string }>;
+        }>).map((item) => (
           <button
             type="button"
-            className={activeView === item.key ? 'is-active' : ''}
             key={item.key}
-            onClick={() => setActiveView(item.key as KnowledgeStructureView)}
+            className="knowledge-overview-card"
+            onClick={() => setDetailView(item.key)}
           >
-            <span>{item.label}</span>
-            <strong>{item.value}</strong>
+            <span className="knowledge-overview-card-head">
+              <span>
+                <strong>{item.title}</strong>
+                <small>{item.description}</small>
+              </span>
+              <Tag>{item.count}</Tag>
+            </span>
+            <span className="knowledge-mini-list">
+              {item.items.length === 0 ? (
+                <span className="knowledge-empty-note">暂无内容</span>
+              ) : (
+                item.items.map((entry) => (
+                  <span className="knowledge-mini-item" key={`${item.key}-${entry.title}`}>
+                    <strong>{entry.title}</strong>
+                    <small>{entry.summary}</small>
+                  </span>
+                ))
+              )}
+            </span>
+            <span className="knowledge-view-all">查看全部</span>
           </button>
         ))}
       </div>
 
-      <div className="knowledge-structure-panel">
-        <div className="knowledge-structure-panel-head">
-          <Typography.Text strong>{selectedPanelTitle}</Typography.Text>
-          <Typography.Text type="secondary">
-            {activeView === 'sections'
-              ? '按文档标题、章节和自然段形成的导航结构。'
-              : activeView === 'buckets'
-                ? '每个知识桶是主题视角，下面会显示它覆盖的章节和代表证据片段。'
-                : '证据片段是最终回答可引用的最小内容单元，由章节切片产生。'}
-          </Typography.Text>
-        </div>
+      <Modal
+        open={Boolean(detailView)}
+        title={knowledgeDetailTitle(detailView)}
+        footer={null}
+        width={920}
+        className="knowledge-detail-modal"
+        onCancel={() => setDetailView(null)}
+      >
+        {detailView === 'document' && (
+          <div className="knowledge-detail-stack">
+            <div className="knowledge-detail-header">
+              <div>
+                <Typography.Text type="secondary">文档卡片</Typography.Text>
+                <Typography.Title level={4}>{documentTitle}</Typography.Title>
+                <Typography.Paragraph>{documentSummary}</Typography.Paragraph>
+              </div>
+              <Button icon={<EditOutlined />} onClick={() => onEditDocument(document)}>
+                修改
+              </Button>
+            </div>
+            <div className="knowledge-evidence-stat is-inline">
+              <strong>{document.file_type || 'unknown'}</strong>
+              <span>文件格式</span>
+            </div>
+            <div className="knowledge-document-meta">
+              <button type="button" className="knowledge-stat-pill" onClick={() => setDetailView('sections')}>
+                <span>章节</span>
+                <strong>{sectionCount}</strong>
+              </button>
+              <button type="button" className="knowledge-stat-pill" onClick={() => setDetailView('buckets')}>
+                <span>知识桶</span>
+                <strong>{buckets.length}</strong>
+              </button>
+              <button type="button" className="knowledge-stat-pill" onClick={() => setDetailView('evidence')}>
+                <span>证据片段</span>
+                <strong>{chunkCount}</strong>
+              </button>
+            </div>
+          </div>
+        )}
 
-        {activeView === 'sections' && (
+        {detailView === 'sections' && (
           <div className="knowledge-section-tree">
-            {sectionTree.length === 0 ? (
+            {sectionTreeAll.length === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无章节结构" />
             ) : (
-              sectionTree.map((section) => (
-                <div
-                  className="knowledge-section-node"
-                  key={String(section.section_id || section.path || section.title)}
-                  style={{ paddingLeft: Math.max(0, Number(section.level || 1) - 1) * 14 }}
-                >
-                  <span>{String(section.path || section.title || '未命名章节')}</span>
-                  <small>{String(section.summary || '')}</small>
-                </div>
-              ))
-            )}
-            {sectionTreeAll.length > sectionTree.length && (
-              <Typography.Text type="secondary">仅预览前 {sectionTree.length} 个章节，其余章节仍参与检索。</Typography.Text>
+              <Collapse
+                ghost
+                items={sectionTreeAll.map((section, index) => ({
+                  key: sectionKey(section, index),
+                  label: (
+                    <span className="knowledge-section-label" style={{ paddingLeft: Math.max(0, sectionLevel(section) - 1) * 14 }}>
+                      {sectionTitle(section, index)}
+                    </span>
+                  ),
+                  children: (
+                    <div className="knowledge-section-detail">
+                      <Typography.Paragraph>{sectionSummary(section) || '暂无摘要'}</Typography.Paragraph>
+                      <Space size={6} wrap>
+                        <Tag>层级 {sectionLevel(section)}</Tag>
+                        {section.path ? <Tag>{String(section.path)}</Tag> : null}
+                      </Space>
+                    </div>
+                  ),
+                }))}
+              />
             )}
           </div>
         )}
 
-        {activeView === 'buckets' && (
+        {detailView === 'buckets' && (
           <div className="knowledge-quality-list">
             {buckets.length === 0 ? (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无知识桶" />
             ) : (
               buckets.map((bucket, index) => {
-                const bucketMeta = bucket.metadata || {};
-                const sourceSections = Array.isArray(bucketMeta.section_paths)
-                  ? bucketMeta.section_paths
-                  : Array.isArray(bucketMeta.section_ids)
-                    ? bucketMeta.section_ids
-                    : [];
-                const representativeChunks = Array.isArray(bucketMeta.representative_chunk_ids)
-                  ? bucketMeta.representative_chunk_ids
-                  : [];
                 const quality =
                   qualityByBucketId.get(bucket.id) ||
                   qualityByBucketId.get(bucket.bucket_key) ||
@@ -1242,7 +1338,7 @@ function PageIndexOverview({
                 const qualityInfo = isRecord(quality.quality) ? quality.quality : {};
                 const warnings = Array.isArray(qualityInfo.warnings) ? qualityInfo.warnings : [];
                 return (
-                  <div className="knowledge-quality-item" key={bucket.id}>
+                  <div className="knowledge-detail-bucket" key={bucket.id}>
                     <div className="knowledge-quality-item-head">
                       <div>
                         <strong>{bucket.title || `知识桶 ${index + 1}`}</strong>
@@ -1255,39 +1351,20 @@ function PageIndexOverview({
                         </Button>
                       </Space>
                     </div>
-                    <Typography.Paragraph ellipsis={{ rows: 2 }}>{bucket.summary}</Typography.Paragraph>
+                    <Typography.Paragraph>{bucket.summary}</Typography.Paragraph>
                     <Space size={6} wrap>
                       <Tag color={qualityInfo.status === 'warning' ? 'gold' : 'green'}>
-                        {qualityInfo.status === 'warning' ? '覆盖待补' : '覆盖完整'}
+                        {qualityInfo.status === 'warning' ? '待补充' : '达标'}
                       </Tag>
-                      <Tag>{sourceSections.length} 章节</Tag>
+                      <Tag>{bucketSourceSections(bucket).length} 章节</Tag>
                       <Tag>{bucket.chunk_count} 证据片段</Tag>
                       {warnings.slice(0, 2).map((warning) => (
                         <Tag color="gold" key={String(warning)}>
-                          {knowledgeQualityWarningLabel(String(warning))}
+                          {String(warning)}
                         </Tag>
                       ))}
                     </Space>
-                    <div className="knowledge-bucket-links">
-                      <Typography.Text type="secondary">覆盖章节</Typography.Text>
-                      <div>
-                        {sourceSections.length === 0 ? (
-                          <Tag>暂无来源章节</Tag>
-                        ) : (
-                          sourceSections.slice(0, 5).map((section) => <Tag key={String(section)}>{String(section)}</Tag>)
-                        )}
-                      </div>
-                    </div>
-                    <div className="knowledge-bucket-links">
-                      <Typography.Text type="secondary">代表片段</Typography.Text>
-                      <div>
-                        {representativeChunks.length === 0 ? (
-                          <Tag>暂无代表片段</Tag>
-                        ) : (
-                          representativeChunks.slice(0, 4).map((chunkId) => <Tag key={String(chunkId)}>{String(chunkId)}</Tag>)
-                        )}
-                      </div>
-                    </div>
+                    <KnowledgeBucketLinks bucket={bucket} />
                   </div>
                 );
               })
@@ -1295,30 +1372,22 @@ function PageIndexOverview({
           </div>
         )}
 
-        {activeView === 'evidence' && (
+        {detailView === 'evidence' && (
           <div className="knowledge-evidence-summary">
             <div className="knowledge-evidence-stat">
               <strong>{chunkCount}</strong>
               <span>证据片段</span>
-              <small>目标长度约 {Number(chunkStats.target_chars || 0) || '-'} 字，按完整段落和句子边界切分。</small>
+              <small>按完整段落和句子边界切分，只有可读内容才在详情中展示。</small>
             </div>
             <div className="knowledge-evidence-bucket-map">
               {buckets.length === 0 ? (
                 <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无证据片段映射" />
               ) : (
                 buckets.map((bucket) => {
-                  const representativeChunks = Array.isArray(bucket.metadata?.representative_chunk_ids)
-                    ? bucket.metadata.representative_chunk_ids
-                    : [];
                   return (
                     <div className="knowledge-evidence-map-item" key={bucket.id}>
                       <Typography.Text strong>{bucket.title}</Typography.Text>
-                      <Space size={6} wrap>
-                        <Tag>{bucket.chunk_count} 片段</Tag>
-                        {representativeChunks.slice(0, 4).map((chunkId) => (
-                          <Tag key={String(chunkId)}>{String(chunkId)}</Tag>
-                        ))}
-                      </Space>
+                      <KnowledgeBucketLinks bucket={bucket} evidenceOnly />
                     </div>
                   );
                 })
@@ -1326,18 +1395,87 @@ function PageIndexOverview({
             </div>
           </div>
         )}
+      </Modal>
+    </div>
+  );
+}
+
+function KnowledgeBucketLinks({ bucket, evidenceOnly = false }: { bucket: KnowledgeBucketRead; evidenceOnly?: boolean }) {
+  const sourceSections = bucketSourceSections(bucket);
+  const representativeChunks = bucketRepresentativeChunks(bucket);
+  return (
+    <div className="knowledge-bucket-link-grid">
+      {!evidenceOnly && (
+        <>
+          <Typography.Text type="secondary">覆盖章节</Typography.Text>
+          <div>
+            {sourceSections.length === 0 ? (
+              <Tag>暂无来源章节</Tag>
+            ) : (
+              sourceSections.map((section) => <Tag key={String(section)}>{String(section)}</Tag>)
+            )}
+          </div>
+        </>
+      )}
+      <Typography.Text type="secondary">代表片段</Typography.Text>
+      <div className="knowledge-evidence-token-list">
+        {representativeChunks.length === 0 ? (
+          <Tag>暂无可读代表片段</Tag>
+        ) : (
+          representativeChunks.map((chunkId) => <Tag key={String(chunkId)}>{String(chunkId)}</Tag>)
+        )}
       </div>
     </div>
   );
 }
 
-function knowledgeQualityWarningLabel(value: string) {
-  const labels: Record<string, string> = {
-    missing_source_section: '缺少来源章节',
-    missing_summary: '缺少摘要',
-    content_too_short: '内容过短',
-  };
-  return labels[value] || value;
+function knowledgeDetailTitle(view: KnowledgeDetailView | null) {
+  if (view === 'document') return '文档详情';
+  if (view === 'sections') return '知识结构';
+  if (view === 'buckets') return '知识桶';
+  if (view === 'evidence') return '证据片段';
+  return '知识详情';
+}
+
+function sectionKey(section: Record<string, unknown>, index: number) {
+  return String(section.section_id || section.path || section.title || `section-${index}`);
+}
+
+function sectionTitle(section: Record<string, unknown>, index: number) {
+  return String(section.path || section.title || `章节 ${index + 1}`);
+}
+
+function sectionSummary(section: Record<string, unknown>) {
+  return String(section.summary || section.preview || '');
+}
+
+function sectionLevel(section: Record<string, unknown>) {
+  return Math.max(1, Number(section.level || section.depth || 1));
+}
+
+function bucketSourceSections(bucket: KnowledgeBucketRead) {
+  const bucketMeta = bucket.metadata || {};
+  if (Array.isArray(bucketMeta.section_paths)) return bucketMeta.section_paths;
+  if (Array.isArray(bucketMeta.section_ids)) return bucketMeta.section_ids;
+  return [];
+}
+
+function bucketRepresentativeChunks(bucket: KnowledgeBucketRead) {
+  const representativeChunks = Array.isArray(bucket.metadata?.representative_chunk_ids)
+    ? bucket.metadata.representative_chunk_ids
+    : [];
+  return representativeChunks
+    .map((chunkId) => String(chunkId || '').trim())
+    .filter((chunkId) => chunkId.length > 0 && !/^k?chunk_[a-f0-9]{8,}$/i.test(chunkId))
+    .slice(0, 12);
+}
+
+function previewRepresentativeChunkIds(buckets: KnowledgeBucketRead[]) {
+  const ids: string[] = [];
+  buckets.forEach((bucket) => {
+    ids.push(...bucketRepresentativeChunks(bucket));
+  });
+  return Array.from(new Set(ids)).slice(0, 3);
 }
 
 function KnowledgeSearchDebug({
