@@ -1,18 +1,17 @@
 import {
   ApiOutlined,
   BookOutlined,
-  CalendarOutlined,
   CheckCircleOutlined,
-  CommentOutlined,
   DashboardOutlined,
   FileTextOutlined,
   MessageOutlined,
   ProfileOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
-import { Avatar, Button, Card, Space, Tag, Typography, message } from 'antd';
+import { Avatar, Card, Space, Tag, Typography, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, TENANT_ID } from '../api/client';
 import { activeResourceCount, employeeDisplayName, employeeProfile, resourceCount } from '../employee';
 import type {
@@ -34,7 +33,18 @@ type ReplyStats = {
   byDay: Record<string, number>;
 };
 
+type GrowthEvent = {
+  id: string;
+  kind: string;
+  title: string;
+  description: string;
+  timestamp: string;
+  icon: ReactNode;
+  tone: string;
+};
+
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [skills, setSkills] = useState<SkillRead[]>([]);
   const [generalSkills, setGeneralSkills] = useState<GeneralSkillRead[]>([]);
@@ -179,50 +189,47 @@ export default function DashboardPage() {
     selectedAgent.persona_prompt || systemPromptSummary || selectedAgent.description || `${employee.roleName}，负责接收任务、调用业务资料、执行 SOP 并沉淀对话质量反馈。`,
     132,
   );
-
-  const scrollToSection = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+  const goToLogs = () => navigate('/enterprise/feedback');
 
   const capabilityCards = [
     {
-      id: 'skills',
+      route: '/enterprise/general-skills',
       title: '已掌握技能',
       count: activeGeneralSkills.length,
       body: activeGeneralSkills.slice(0, 3).map((item) => item.name).join(' / ') || '暂无启用技能',
       icon: <ApiOutlined />,
     },
     {
-      id: 'sop',
+      route: '/enterprise/skills',
       title: 'SOP管理',
       count: activeSkills.length,
       body: activeSkills.slice(0, 3).map((item) => item.name).join(' / ') || '暂无启用 SOP',
       icon: <ProfileOutlined />,
     },
     {
-      id: 'knowledge',
+      route: '/enterprise/knowledge',
       title: '业务资料',
       count: activeKnowledge.length,
       body: activeKnowledge.slice(0, 3).map((item) => item.name).join(' / ') || '暂无业务资料',
       icon: <FileTextOutlined />,
     },
     {
-      id: 'tools',
+      route: '/enterprise/tools',
       title: '工具箱',
       count: activeTools.length,
       body: activeTools.slice(0, 3).map((item) => item.display_name || item.name).join(' / ') || '暂无启用工具',
       icon: <ToolOutlined />,
     },
     {
-      id: 'logs',
+      route: '/enterprise/feedback',
       title: '对话日志',
       count: replyStats.total,
       body: employeeSessions[0]?.summary || employeeSessions[0]?.last_agent_question || '暂无对话任务',
-      icon: <CommentOutlined />,
+      icon: <MessageOutlined />,
     },
   ];
 
-  const growthItems = growthTimeline(activeSkills, activeGeneralSkills, activeKnowledge, employeeSessions);
+  const growthItems = growthTimeline(activeSkills, activeGeneralSkills, activeTools);
 
   return (
     <div className="page dashboard-page employee-dashboard-page employee-home-page">
@@ -242,7 +249,9 @@ export default function DashboardPage() {
             <Typography.Text type="secondary">入职时间：{employee.onboardedAt}</Typography.Text>
           </Space>
           <Typography.Paragraph className="employee-system-summary">{systemSummary}</Typography.Paragraph>
-          <Button type="text" onClick={() => scrollToSection('capabilities')}>编辑入职资料</Button>
+          <div className="employee-home-tags">
+            {employee.expertiseTags.slice(0, 4).map((item) => <span key={item}>{item}</span>)}
+          </div>
         </div>
         <div className="employee-home-side">
           <MetricTile label="SOP" value={resourceCount(selectedAgent.resources, 'skill')} />
@@ -258,16 +267,12 @@ export default function DashboardPage() {
             <Typography.Title level={4}>工作记录</Typography.Title>
             <Typography.Text type="secondary">每天完成多少轮对话，以及近期质量表现。</Typography.Text>
           </div>
-          <Space wrap>
-            <Button type="text" icon={<CalendarOutlined />}>时间线视图</Button>
-            <Button type="text" icon={<CommentOutlined />} onClick={() => scrollToSection('logs')}>对话任务</Button>
-          </Space>
         </div>
         <div className="employee-work-metrics">
-          <ClickableMetric label="今日对话" value={todayRounds} suffix="轮" onClick={() => scrollToSection('logs')} />
-          <ClickableMetric label="累计对话" value={replyStats.total} onClick={() => scrollToSection('logs')} />
-          <ClickableMetric label="收获好评率" value={positiveRate} suffix="%" onClick={() => scrollToSection('logs')} />
-          <ClickableMetric label="差评率" value={negativeRate} suffix="%" onClick={() => scrollToSection('logs')} />
+          <ClickableMetric label="今日对话" value={todayRounds} suffix="轮" onClick={goToLogs} />
+          <ClickableMetric label="累计对话" value={replyStats.total} onClick={goToLogs} />
+          <ClickableMetric label="收获好评率" value={positiveRate} suffix="%" onClick={goToLogs} />
+          <ClickableMetric label="差评率" value={negativeRate} suffix="%" onClick={goToLogs} />
         </div>
         <ConversationHeatmap byDay={replyStats.byDay} />
       </section>
@@ -276,19 +281,29 @@ export default function DashboardPage() {
         <div className="employee-section-head">
           <div>
             <Typography.Title level={4}>成长轨迹</Typography.Title>
-            <Typography.Text type="secondary">从学习 SOP、掌握技能、补充资料和完成对话中沉淀能力。</Typography.Text>
+            <Typography.Text type="secondary">记录员工什么时候学习 SOP、掌握技能、升级流程和学会新工具。</Typography.Text>
           </div>
-          <Button type="link" onClick={() => scrollToSection('logs')}>查看完整对话</Button>
         </div>
-        <div className="employee-growth-line">
-          {growthItems.map((item) => (
-            <div className="employee-growth-node" key={`${item.kind}-${item.title}`}>
-              <span className={`employee-growth-dot is-${item.tone}`}>{item.icon}</span>
-              <small>{item.kind} · {item.time}</small>
-              <strong>{item.title}</strong>
-            </div>
-          ))}
-        </div>
+        {growthItems.length ? (
+          <div className="employee-growth-timeline">
+            {growthItems.map((item) => (
+              <div className="employee-growth-event" key={item.id}>
+                <div className="employee-growth-date">
+                  <strong>{formatMonthDay(item.timestamp)}</strong>
+                  <span>{relativeTime(item.timestamp)}</span>
+                </div>
+                <span className={`employee-growth-dot is-${item.tone}`}>{item.icon}</span>
+                <div className="employee-growth-copy">
+                  <small>{item.kind}</small>
+                  <strong>{item.title}</strong>
+                  <span>{item.description}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="employee-growth-empty">暂无学习记录</div>
+        )}
       </section>
 
       <section className="employee-capability-wrap" id="capabilities">
@@ -300,40 +315,17 @@ export default function DashboardPage() {
         </div>
         <div className="employee-capability-grid">
           {capabilityCards.map((item) => (
-            <Card key={item.id} className="employee-capability-card">
+            <Card key={item.title} className="employee-capability-card" hoverable onClick={() => navigate(item.route)}>
               <div className="employee-capability-head">
                 <span>{item.icon}</span>
                 <strong>{item.title}</strong>
                 <em>{item.count}</em>
               </div>
               <Typography.Paragraph ellipsis={{ rows: 2 }}>{item.body}</Typography.Paragraph>
-              <Space>
-                <Button type="link" onClick={() => scrollToSection(item.id)}>查看完整</Button>
-                <Button type="link" onClick={() => scrollToSection(item.id)}>修改</Button>
-              </Space>
             </Card>
           ))}
         </div>
       </section>
-
-      <EmployeeSection id="skills" title="已掌握技能" icon={<ApiOutlined />}>
-        <ResourceList items={activeGeneralSkills.map((item) => `${item.name} · ${item.slug}`)} empty="暂无启用技能" />
-      </EmployeeSection>
-      <EmployeeSection id="sop" title="SOP管理" icon={<ProfileOutlined />}>
-        <ResourceList items={activeSkills.map((item) => `${item.name} · v${item.version}`)} empty="暂无启用 SOP" />
-      </EmployeeSection>
-      <EmployeeSection id="knowledge" title="业务资料" icon={<FileTextOutlined />}>
-        <ResourceList items={activeKnowledge.map((item) => `${item.name} · ${item.bucket_count} 桶 / ${item.chunk_count} 片段`)} empty="暂无业务资料" />
-      </EmployeeSection>
-      <EmployeeSection id="tools" title="工具箱" icon={<ToolOutlined />}>
-        <ResourceList items={activeTools.map((item) => `${item.display_name || item.name} · ${item.bucket}`)} empty="暂无启用工具" />
-      </EmployeeSection>
-      <EmployeeSection id="logs" title="对话日志" icon={<CommentOutlined />}>
-        <ResourceList
-          items={employeeSessions.slice(0, 8).map((item) => `${item.title || item.id} · ${item.summary || item.last_agent_question || item.status}`)}
-          empty="暂无对话任务"
-        />
-      </EmployeeSection>
     </div>
   );
 }
@@ -363,23 +355,6 @@ function ClickableMetric({ label, value, suffix = '', onClick }: { label: string
       <strong>{value}{suffix}</strong>
       <span>{label}</span>
     </button>
-  );
-}
-
-function EmployeeSection({ id, title, icon, children }: { id: string; title: string; icon: ReactNode; children: ReactNode }) {
-  return (
-    <Card id={id} className="employee-detail-section" title={<Space>{icon}<span>{title}</span></Space>}>
-      {children}
-    </Card>
-  );
-}
-
-function ResourceList({ items, empty }: { items: string[]; empty: string }) {
-  if (!items.length) return <Typography.Text type="secondary">{empty}</Typography.Text>;
-  return (
-    <div className="employee-resource-list">
-      {items.map((item) => <div key={item}>{item}</div>)}
-    </div>
   );
 }
 
@@ -418,10 +393,10 @@ function ConversationHeatmap({ byDay }: { byDay: Record<string, number> }) {
 function heatmapDays(byDay: Record<string, number>) {
   const today = new Date();
   const start = new Date(today);
-  start.setDate(today.getDate() - 7 * 25);
+  start.setDate(today.getDate() - 7 * 52);
   const weekDay = (start.getDay() + 6) % 7;
   start.setDate(start.getDate() - weekDay);
-  return Array.from({ length: 7 * 26 }, (_, index) => {
+  return Array.from({ length: 7 * 53 }, (_, index) => {
     const day = new Date(start);
     day.setDate(start.getDate() + index);
     const key = dateKey(day);
@@ -457,40 +432,65 @@ function compactSummary(value: string, maxLength: number): string {
 function growthTimeline(
   sops: SkillRead[],
   generalSkills: GeneralSkillRead[],
-  knowledge: KnowledgeBaseRead[],
-  sessions: EnterpriseChatSessionRead[],
-) {
-  const latestSession = sessions[0];
-  return [
-    {
-      kind: '对话完成',
-      title: latestSession ? compactSummary(latestSession.summary || latestSession.last_agent_question || latestSession.title || latestSession.id, 54) : '等待首个对话任务',
-      time: latestSession ? relativeTime(latestSession.updated_at) : '暂无',
-      icon: <CommentOutlined />,
-      tone: 'green',
-    },
-    {
-      kind: '学习 SOP',
-      title: sops[0]?.name || '尚未学习 SOP',
-      time: sops[0] ? relativeTime(sops[0].updated_at) : '待学习',
+  tools: ToolRead[],
+): GrowthEvent[] {
+  const events: GrowthEvent[] = [];
+
+  sops.forEach((item) => {
+    const evolved = Boolean(item.branch_head_version && item.branch_head_version !== item.branch_base_version);
+    events.push({
+      id: `sop-${item.id}`,
+      kind: evolved ? 'SOP 进化' : '学习 SOP',
+      title: item.name,
+      description: evolved
+        ? `员工版本从 ${item.branch_base_version || item.version} 进化到 ${item.branch_head_version || item.version}`
+        : `学习 ${item.version} 版业务流程`,
+      timestamp: item.updated_at || item.created_at,
       icon: <ProfileOutlined />,
       tone: 'mint',
-    },
-    {
-      kind: '掌握技能',
-      title: generalSkills[0]?.name || '尚未启用技能',
-      time: generalSkills[0] ? relativeTime(generalSkills[0].updated_at) : '待启用',
+    });
+  });
+
+  generalSkills.forEach((item) => {
+    const upgraded = isMeaningfullyUpdated(item.created_at, item.updated_at);
+    events.push({
+      id: `general-${item.id}`,
+      kind: upgraded ? '技能升级' : '学会技能',
+      title: item.name,
+      description: upgraded ? '技能说明、权限或运行配置有更新' : `掌握 ${item.slug} 通用能力`,
+      timestamp: item.updated_at || item.created_at,
       icon: <CheckCircleOutlined />,
       tone: 'teal',
-    },
-    {
-      kind: '业务资料',
-      title: knowledge[0]?.name || '尚未绑定资料',
-      time: knowledge[0] ? relativeTime(knowledge[0].updated_at) : '待绑定',
-      icon: <BookOutlined />,
-      tone: 'gold',
-    },
-  ];
+    });
+  });
+
+  tools.slice(0, 3).forEach((item) => {
+    events.push({
+      id: `tool-${item.id}`,
+      kind: '学会工具',
+      title: item.display_name || item.name,
+      description: `${item.bucket || '工具箱'} · ${item.tool_type.toUpperCase()} 调用能力`,
+      timestamp: item.updated_at,
+      icon: <ToolOutlined />,
+      tone: 'green',
+    });
+  });
+
+  return events
+    .filter((item) => Boolean(item.timestamp))
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 8);
+}
+
+function isMeaningfullyUpdated(createdAt?: string, updatedAt?: string): boolean {
+  if (!createdAt || !updatedAt) return false;
+  return Math.abs(new Date(updatedAt).getTime() - new Date(createdAt).getTime()) > 60 * 1000;
+}
+
+function formatMonthDay(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
 function relativeTime(value?: string): string {
