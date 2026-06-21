@@ -1946,6 +1946,84 @@ body.skill-distill-fixed .content {
   vertical-align: top;
 }
 
+.scheduled-task-mobile-list {
+  display: none;
+}
+
+.scheduled-task-mobile-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 12%, var(--border));
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.34)),
+    color-mix(in srgb, var(--surface) 92%, var(--accent-soft));
+  box-shadow: 0 8px 22px rgba(30, 24, 16, 0.045);
+}
+
+.scheduled-task-mobile-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.scheduled-task-mobile-card-head .ant-typography {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.scheduled-task-mobile-summary.ant-typography {
+  margin: 8px 0 0;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.scheduled-task-mobile-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.scheduled-task-mobile-meta > span {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 10px;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--surface) 84%, white);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.scheduled-task-mobile-meta b {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.scheduled-task-mobile-tag {
+  width: max-content;
+  max-width: 100%;
+  margin-top: 10px;
+  white-space: normal;
+}
+
+.scheduled-task-actions {
+  margin-top: 12px;
+}
+
 .scheduled-task-run-summary {
   max-width: 520px;
   display: -webkit-box;
@@ -1969,6 +2047,61 @@ body.skill-distill-fixed .content {
   background: color-mix(in srgb, var(--accent-soft) 38%, var(--surface));
   font-size: 13px;
   line-height: 1.6;
+}
+
+@media (max-width: 760px) {
+  .scheduled-task-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scheduled-task-list-card .ant-card-head {
+    min-height: 0;
+    padding: 0 14px;
+  }
+
+  .scheduled-task-list-card .ant-card-head-wrapper {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 0;
+  }
+
+  .scheduled-task-list-card .ant-card-extra {
+    width: 100%;
+    margin-left: 0;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .scheduled-task-list-card .ant-segmented {
+    min-width: max-content;
+  }
+
+  .scheduled-task-desktop-table {
+    display: none;
+  }
+
+  .scheduled-task-mobile-list {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .scheduled-task-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 520px) {
+  .scheduled-task-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .scheduled-task-mobile-meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .knowledge-floating-subpage {

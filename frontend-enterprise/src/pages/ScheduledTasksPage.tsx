@@ -217,6 +217,27 @@ export default function ScheduledTasksPage() {
   const activeRows = rows.filter((item) => item.status === 'active');
   const visibleRows = rows.filter((item) => matchesTaskFilter(item, taskFilter));
   const visibleRunRows = allRunRows.filter((item) => matchesRunFilter(item, runFilter));
+  const renderTaskActions = (row: ScheduledTaskRead) => {
+    const isArchived = row.status === 'archived';
+    const isCompleted = row.status === 'completed';
+    return (
+      <span className="table-actions scheduled-task-actions">
+        <Button size="small" onClick={() => openRuns(row)}>记录</Button>
+        {isArchived ? (
+          <Button size="small" icon={<ReloadOutlined />} onClick={() => void restore(row)}>恢复</Button>
+        ) : (
+          <>
+            <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/enterprise/scheduled-tasks/${row.id}/edit`)}>编辑</Button>
+            <Button size="small" icon={<PlayCircleOutlined />} onClick={() => void runNow(row)}>现在运行</Button>
+            {!isCompleted && (
+              <Button size="small" onClick={() => void toggleStatus(row)}>{row.status === 'active' ? '暂停' : '启用'}</Button>
+            )}
+            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => remove(row)}>删除</Button>
+          </>
+        )}
+      </span>
+    );
+  };
   const columns: ColumnsType<ScheduledTaskRead> = [
     {
       title: '自动任务',
@@ -243,27 +264,7 @@ export default function ScheduledTasksPage() {
       title: '操作',
       fixed: 'right',
       width: 300,
-      render: (_, row) => {
-        const isArchived = row.status === 'archived';
-        const isCompleted = row.status === 'completed';
-        return (
-          <span className="table-actions">
-            <Button size="small" onClick={() => openRuns(row)}>记录</Button>
-            {isArchived ? (
-              <Button size="small" icon={<ReloadOutlined />} onClick={() => void restore(row)}>恢复</Button>
-            ) : (
-              <>
-                <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/enterprise/scheduled-tasks/${row.id}/edit`)}>编辑</Button>
-                <Button size="small" icon={<PlayCircleOutlined />} onClick={() => void runNow(row)}>现在运行</Button>
-                {!isCompleted && (
-                  <Button size="small" onClick={() => void toggleStatus(row)}>{row.status === 'active' ? '暂停' : '启用'}</Button>
-                )}
-                <Button size="small" danger icon={<DeleteOutlined />} onClick={() => remove(row)}>删除</Button>
-              </>
-            )}
-          </span>
-        );
-      },
+      render: (_, row) => renderTaskActions(row),
     },
   ];
   const runColumns: ColumnsType<ScheduledTaskRunRead> = [
@@ -361,7 +362,30 @@ export default function ScheduledTasksPage() {
               />
             )}
           >
+            <div className="scheduled-task-mobile-list">
+              {visibleRows.length ? visibleRows.map((row) => (
+                <article className="scheduled-task-mobile-card" key={row.id}>
+                  <div className="scheduled-task-mobile-card-head">
+                    <Typography.Text strong>{row.title}</Typography.Text>
+                    <TaskStatusTag status={row.status} />
+                  </div>
+                  <Typography.Paragraph className="scheduled-task-mobile-summary" type="secondary">
+                    {row.prompt}
+                  </Typography.Paragraph>
+                  <div className="scheduled-task-mobile-meta">
+                    <span><b>计划</b>{formatSchedule(row)}</span>
+                    <span><b>下次</b>{formatTime(row.next_run_at)}</span>
+                    <span><b>已执行</b>{row.run_count || 0} 次</span>
+                    <span><b>最近</b>{row.last_status ? <TaskRunStatusTag status={row.last_status} /> : '暂无'}</span>
+                  </div>
+                  {renderTaskActions(row)}
+                </article>
+              )) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无自动任务" />
+              )}
+            </div>
             <Table
+              className="scheduled-task-desktop-table"
               rowKey="id"
               columns={columns}
               dataSource={visibleRows}
@@ -387,7 +411,33 @@ export default function ScheduledTasksPage() {
               />
             )}
           >
+            <div className="scheduled-task-mobile-list">
+              {visibleRunRows.length ? visibleRunRows.map((row) => (
+                <article className="scheduled-task-mobile-card scheduled-task-run-mobile-card" key={row.id}>
+                  <div className="scheduled-task-mobile-card-head">
+                    <Typography.Text strong>{row.task_title || row.scheduled_task_id}</Typography.Text>
+                    <TaskRunStatusTag status={row.status} />
+                  </div>
+                  {row.task_status === 'archived' && <Tag className="scheduled-task-mobile-tag">任务定义已删除</Tag>}
+                  <div className="scheduled-task-mobile-meta">
+                    <span><b>计划时间</b>{formatTime(row.scheduled_for)}</span>
+                    <span><b>完成时间</b>{formatTime(row.finished_at)}</span>
+                  </div>
+                  <Typography.Paragraph className="scheduled-task-mobile-summary" type="secondary">
+                    {row.result_summary || row.error || '暂无结果'}
+                  </Typography.Paragraph>
+                  <span className="table-actions scheduled-task-actions">
+                    <Button size="small" disabled={!row.session_id} onClick={() => openChatSession(row.session_id)}>
+                      打开会话
+                    </Button>
+                  </span>
+                </article>
+              )) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无执行记录" />
+              )}
+            </div>
             <Table
+              className="scheduled-task-desktop-table"
               rowKey="id"
               columns={runColumns}
               dataSource={visibleRunRows}
