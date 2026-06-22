@@ -483,7 +483,14 @@ function ConversationHeatmap({ byDay }: { byDay: Record<string, number> }) {
   return (
     <div className="employee-heatmap">
       <div className="employee-heatmap-months">
-        {monthLabels(days).map((item) => <span key={`${item.label}-${item.offset}`} style={{ gridColumnStart: item.offset + 1 }}>{item.label}</span>)}
+        {monthLabels(days).map((item) => (
+          <span
+            key={`${item.label}-${item.offset}`}
+            style={{ gridColumn: `${item.offset + 1} / span ${item.span}` }}
+          >
+            {item.label}
+          </span>
+        ))}
       </div>
       <div className="employee-heatmap-body">
         <div className="employee-heatmap-weekdays">
@@ -525,16 +532,19 @@ function heatmapDays(byDay: Record<string, number>) {
 }
 
 function monthLabels(days: ReturnType<typeof heatmapDays>) {
-  const labels: Array<{ label: string; offset: number }> = [];
+  const labels: Array<{ label: string; offset: number; span: number }> = [];
   let last = '';
   days.forEach((day, index) => {
     const label = `${day.date.getMonth() + 1}月`;
     if (label !== last && day.date.getDate() <= 7) {
-      labels.push({ label, offset: Math.floor(index / 7) });
+      labels.push({ label, offset: Math.floor(index / 7), span: 1 });
       last = label;
     }
   });
-  return labels;
+  return labels.map((item, index) => {
+    const nextOffset = labels[index + 1]?.offset ?? 53;
+    return { ...item, span: Math.max(2, nextOffset - item.offset) };
+  });
 }
 
 function dateKey(date: Date): string {
