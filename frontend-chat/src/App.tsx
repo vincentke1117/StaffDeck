@@ -3,6 +3,7 @@ import zhCN from 'antd/locale/zh_CN';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { getAuthSession } from './api/client';
 import ChatWindowPage from './pages/ChatWindowPage';
+import EmployeeGalleryPage from './pages/EmployeeGalleryPage';
 import LoginPage from './pages/LoginPage';
 import SessionListPage from './pages/SessionListPage';
 import { useThemeController } from './theme';
@@ -42,6 +43,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<RequireAuth><SessionListPage /></RequireAuth>} />
+          <Route path="/employees" element={<RequireAuth><EmployeeGalleryPage /></RequireAuth>} />
           <Route path="/:sessionId" element={<RequireAuth><ChatWindowPage /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

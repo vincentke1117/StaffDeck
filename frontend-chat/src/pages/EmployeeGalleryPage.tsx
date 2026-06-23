@@ -1,6 +1,4 @@
 import {
-  DeleteOutlined,
-  EditOutlined,
   GlobalOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
@@ -9,8 +7,7 @@ import {
   ReloadOutlined,
   RightOutlined,
 } from '@ant-design/icons';
-import { Button, Empty, Input, Modal, Typography, message } from 'antd';
-import type { MouseEvent } from 'react';
+import { Button, Empty, Modal, Typography, message } from 'antd';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, clearAuthSession, getAuthSession, isAuthError } from '../api/client';
@@ -28,25 +25,24 @@ function SessionChatIcon() {
   );
 }
 
-export default function SessionListPage() {
+export default function EmployeeGalleryPage() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState(() => window.localStorage.getItem('skill_agent_selected_agent') || '');
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [newSessionAgentId, setNewSessionAgentId] = useState('');
-  const [renameSession, setRenameSession] = useState<ChatSession | null>(null);
-  const [renameTitle, setRenameTitle] = useState('');
-  const navigate = useNavigate();
-  const [auth] = useState(() => getAuthSession());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => (
     window.localStorage.getItem('skill_agent_sidebar_collapsed') === 'true'
   ));
+  const [auth] = useState(() => getAuthSession());
+  const navigate = useNavigate();
   const tenantId = auth?.user.tenant_id || 'tenant_demo';
-  const personalAgents = agents.filter((agent) => !isGalleryEmployee(agent) || isEmployeeOwnedBy(agent, auth?.user));
+  const availableAgents = visibleChatEmployees(agents, auth?.user);
+  const personalAgents = availableAgents.filter((agent) => !isGalleryEmployee(agent) || isEmployeeOwnedBy(agent, auth?.user));
   const personalAgentIds = new Set(personalAgents.map((agent) => agent.id));
-  const galleryAgents = agents.filter((agent) => isGalleryEmployee(agent) && !personalAgentIds.has(agent.id));
+  const galleryAgents = availableAgents.filter((agent) => isGalleryEmployee(agent) && !personalAgentIds.has(agent.id));
 
-  const load = () =>
+  const loadSessions = () =>
     api
       .get<ChatSession[]>(`/api/chat/sessions?tenant_id=${tenantId}`)
       .then(setSessions)
@@ -60,7 +56,7 @@ export default function SessionListPage() {
       });
 
   useEffect(() => {
-    load();
+    loadSessions();
   }, []);
 
   useEffect(() => {
@@ -84,10 +80,18 @@ export default function SessionListPage() {
       .catch(() => setAgents([]));
   }, [auth?.user, selectedAgentId, tenantId]);
 
+  function toggleSidebar() {
+    setSidebarCollapsed((current) => {
+      const next = !current;
+      window.localStorage.setItem('skill_agent_sidebar_collapsed', String(next));
+      return next;
+    });
+  }
+
   function openCreateSession() {
-    const fallbackAgentId = selectedAgentId && agents.some((agent) => agent.id === selectedAgentId)
+    const fallbackAgentId = selectedAgentId && availableAgents.some((agent) => agent.id === selectedAgentId)
       ? selectedAgentId
-      : agents[0]?.id || '';
+      : availableAgents[0]?.id || '';
     setNewSessionAgentId(fallbackAgentId);
     setNewSessionOpen(true);
   }
@@ -105,56 +109,41 @@ export default function SessionListPage() {
   }
 
   async function createSession() {
-    const agentId = newSessionAgentId || selectedAgentId || agents[0]?.id || '';
+    const agentId = newSessionAgentId || selectedAgentId || availableAgents[0]?.id || '';
     await createSessionForAgent(agentId);
   }
 
-  function toggleSidebar() {
-    setSidebarCollapsed((current) => {
-      const next = !current;
-      window.localStorage.setItem('skill_agent_sidebar_collapsed', String(next));
-      return next;
-    });
-  }
-
-  function openRename(event: MouseEvent<HTMLElement>, session: ChatSession) {
-    event.stopPropagation();
-    setRenameSession(session);
-    setRenameTitle(session.title || session.id);
-  }
-
-  async function saveRename() {
-    if (!renameSession) return;
-    const title = renameTitle.trim();
-    if (!title) {
-      message.warning('请输入任务名称');
-      return;
+  const renderEmployeeCards = (rows: AgentProfileRead[], emptyText: string) => {
+    if (!rows.length) {
+      return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />;
     }
-    const updated = await api.put<ChatSession>(`/api/chat/sessions/${renameSession.id}`, {
-      tenant_id: tenantId,
-      title,
+    return rows.map((agent) => {
+      const profile = employeeProfile(agent);
+      return (
+        <button
+          key={agent.id}
+          type="button"
+          className={`employee-gallery-page-card ${selectedAgentId === agent.id ? 'selected' : ''}`}
+          onClick={() => void createSessionForAgent(agent.id)}
+        >
+          <EmployeeAvatarMark profile={profile} className="employee-gallery-page-avatar" />
+          <span className="employee-gallery-page-copy">
+            <span className="employee-gallery-page-name">{employeeDisplayName(agent)}</span>
+            <span className="employee-gallery-page-role">{profile.roleName}</span>
+            <span className="employee-gallery-page-desc">{agent.description || '可直接派发任务，使用该员工的技能、SOP 和业务资料。'}</span>
+            <span className="employee-gallery-page-tags">
+              <span>在线</span>
+              <span>{isGalleryEmployee(agent) ? '员工广场' : '个人员工'}</span>
+            </span>
+          </span>
+          <span className="employee-gallery-page-action">
+            发起对话
+            <RightOutlined />
+          </span>
+        </button>
+      );
     });
-    setSessions((items) => items.map((item) => (item.id === updated.id ? updated : item)));
-    setRenameSession(null);
-    setRenameTitle('');
-    message.success('已重命名');
-  }
-
-  function confirmDelete(event: MouseEvent<HTMLElement>, target: ChatSession) {
-    event.stopPropagation();
-    Modal.confirm({
-      title: '删除任务记录',
-      content: `确定删除「${target.title || target.id}」吗？此操作会同时删除该任务的消息记录。`,
-      okText: '删除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: async () => {
-        await api.delete(`/api/chat/sessions/${target.id}?tenant_id=${tenantId}`);
-        setSessions((items) => items.filter((item) => item.id !== target.id));
-        message.success('已删除');
-      },
-    });
-  }
+  };
 
   return (
     <div className={`chat-layout ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -174,7 +163,7 @@ export default function SessionListPage() {
             </div>
           </div>
           <div className="sidebar-actions">
-            <Button className="icon-button" icon={<ReloadOutlined />} onClick={load} />
+            <Button className="icon-button" icon={<ReloadOutlined />} onClick={loadSessions} />
             <Button className="icon-button primary" icon={<PlusOutlined />} onClick={openCreateSession} />
             <Button
               className="icon-button sidebar-logout"
@@ -187,11 +176,11 @@ export default function SessionListPage() {
           </div>
         </div>
         {!sidebarCollapsed && (
-          <button type="button" className="sidebar-gallery-entry" onClick={() => navigate('/employees')}>
+          <button type="button" className="sidebar-gallery-entry active" onClick={() => navigate('/employees')}>
             <span className="sidebar-gallery-entry-icon"><GlobalOutlined /></span>
             <span className="sidebar-gallery-entry-copy">
               <strong>员工广场</strong>
-              <span>选择接单员工</span>
+              <span>个人员工与开放员工</span>
             </span>
             <RightOutlined />
           </button>
@@ -230,24 +219,6 @@ export default function SessionListPage() {
                         {sessionSummary}
                       </div>
                     </div>
-                    <div className="session-actions">
-                      <Button
-                        className="session-action"
-                        size="small"
-                        type="text"
-                        icon={<EditOutlined />}
-                        aria-label="重命名任务"
-                        onClick={(event) => openRename(event, session)}
-                      />
-                      <Button
-                        className="session-action danger"
-                        size="small"
-                        type="text"
-                        icon={<DeleteOutlined />}
-                        aria-label="删除任务"
-                        onClick={(event) => confirmDelete(event, session)}
-                      />
-                    </div>
                   </div>
                 </div>
               );
@@ -255,24 +226,55 @@ export default function SessionListPage() {
           )}
         </div>
       </aside>
-      <main className="chat-main">
+      <main className="chat-main employee-gallery-page-main">
         <div className="chat-header">
           <div>
-            <Typography.Text strong>任务派发台</Typography.Text>
-            <div className="header-subtitle">选择历史任务或派发新任务</div>
+            <Typography.Text strong>员工广场</Typography.Text>
+            <div className="header-subtitle">选择个人员工或开放员工，直接发起任务对话</div>
           </div>
           <div className="chat-header-actions">
             <ThemeToggleButton />
           </div>
         </div>
-        <div className="chat-messages">
-          <div className="chat-empty-state">
-            <span className="chat-empty-mark"><GlobalOutlined /></span>
-            <Typography.Title level={3}>从员工广场派发任务</Typography.Title>
-            <Typography.Paragraph>
-              进入员工广场可直接选择员工创建会话，也可以用左上角加号选择接单员工。
-            </Typography.Paragraph>
-          </div>
+        <div className="employee-gallery-page">
+          <section className="employee-gallery-page-hero">
+            <span className="employee-gallery-page-hero-icon"><GlobalOutlined /></span>
+            <div>
+              <Typography.Title level={2}>选择接单员工</Typography.Title>
+              <Typography.Paragraph>
+                员工广场是任务派发入口。个人员工来自当前账号，开放员工来自员工广场，点击卡片即可创建新会话。
+              </Typography.Paragraph>
+            </div>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateSession}>
+              新建任务
+            </Button>
+          </section>
+
+          <section className="employee-gallery-page-section">
+            <div className="employee-gallery-page-section-head">
+              <div>
+                <Typography.Title level={3}>个人员工</Typography.Title>
+                <Typography.Text type="secondary">当前账号可直接派发的员工。</Typography.Text>
+              </div>
+              <span>{personalAgents.length}</span>
+            </div>
+            <div className="employee-gallery-page-grid">
+              {renderEmployeeCards(personalAgents, '暂无个人员工')}
+            </div>
+          </section>
+
+          <section className="employee-gallery-page-section">
+            <div className="employee-gallery-page-section-head">
+              <div>
+                <Typography.Title level={3}>员工广场</Typography.Title>
+                <Typography.Text type="secondary">已开放给任务派发台选择的数字员工。</Typography.Text>
+              </div>
+              <span>{galleryAgents.length}</span>
+            </div>
+            <div className="employee-gallery-page-grid">
+              {renderEmployeeCards(galleryAgents, '员工广场暂无开放员工')}
+            </div>
+          </section>
         </div>
       </main>
       <Modal
@@ -289,7 +291,7 @@ export default function SessionListPage() {
           一个任务只绑定一位接单员工。创建后，该任务不会随默认选择变化。
         </div>
         <div className="new-session-agent-list">
-          {agents.length === 0 ? (
+          {availableAgents.length === 0 ? (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可用员工" />
           ) : (
             <>
@@ -334,26 +336,6 @@ export default function SessionListPage() {
             </>
           )}
         </div>
-      </Modal>
-      <Modal
-        title="重命名任务"
-        open={Boolean(renameSession)}
-        okText="保存"
-        cancelText="取消"
-        onOk={saveRename}
-        onCancel={() => {
-          setRenameSession(null);
-          setRenameTitle('');
-        }}
-      >
-        <Input
-          autoFocus
-          maxLength={80}
-          value={renameTitle}
-          onChange={(event) => setRenameTitle(event.target.value)}
-          onPressEnter={saveRename}
-          placeholder="输入任务名称"
-        />
       </Modal>
     </div>
   );

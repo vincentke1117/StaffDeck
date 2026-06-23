@@ -2449,13 +2449,14 @@ export default function ChatWindowPage() {
           </div>
         </div>
         {!sidebarCollapsed && (
-          <SidebarEmployeeGallery
-            personalAgents={personalAgents}
-            galleryAgents={galleryAgents}
-            selectedAgentId={displayedAgent?.id || selectedAgentId}
-            onOpenCreate={openCreateSession}
-            onCreate={(agentId) => void createSessionForAgent(agentId)}
-          />
+          <button type="button" className="sidebar-gallery-entry" onClick={() => navigate('/employees')}>
+            <span className="sidebar-gallery-entry-icon"><GlobalOutlined /></span>
+            <span className="sidebar-gallery-entry-copy">
+              <strong>员工广场</strong>
+              <span>选择接单员工</span>
+            </span>
+            <RightOutlined />
+          </button>
         )}
         <div className="session-list-scroll">
           <div className="session-section-label">任务记录</div>
@@ -2935,65 +2936,6 @@ export default function ChatWindowPage() {
         />
       </Modal>
     </div>
-  );
-}
-
-function SidebarEmployeeGallery({
-  personalAgents,
-  galleryAgents,
-  selectedAgentId,
-  onOpenCreate,
-  onCreate,
-}: {
-  personalAgents: AgentProfileRead[];
-  galleryAgents: AgentProfileRead[];
-  selectedAgentId: string;
-  onOpenCreate: () => void;
-  onCreate: (agentId: string) => void;
-}) {
-  const hasAgents = personalAgents.length > 0 || galleryAgents.length > 0;
-  const renderAgents = (rows: AgentProfileRead[], label: string) => {
-    if (!rows.length) return null;
-    return (
-      <>
-        <div className="sidebar-agent-gallery-group">{label}</div>
-        {rows.map((agent) => {
-          const profile = employeeProfile(agent);
-          return (
-            <button
-              key={agent.id}
-              type="button"
-              className={`sidebar-agent-gallery-card ${selectedAgentId === agent.id ? 'selected' : ''}`}
-              onClick={() => onCreate(agent.id)}
-            >
-              <EmployeeAvatarMark profile={profile} className="sidebar-agent-gallery-avatar" />
-              <span className="sidebar-agent-gallery-copy">
-                <strong>{employeeDisplayName(agent)}</strong>
-                <span>{profile.roleName}</span>
-              </span>
-              <RightOutlined />
-            </button>
-          );
-        })}
-      </>
-    );
-  };
-
-  return (
-    <section className="sidebar-agent-gallery">
-      <div className="sidebar-agent-gallery-head">
-        <span><GlobalOutlined /> 员工广场</span>
-        <Button className="sidebar-agent-gallery-add" type="text" icon={<PlusOutlined />} onClick={onOpenCreate} aria-label="选择接单员工" />
-      </div>
-      {!hasAgents ? (
-        <div className="sidebar-agent-gallery-empty">暂无可用员工</div>
-      ) : (
-        <div className="sidebar-agent-gallery-list">
-          {renderAgents(personalAgents, '个人员工')}
-          {renderAgents(galleryAgents, '员工广场')}
-        </div>
-      )}
-    </section>
   );
 }
 
