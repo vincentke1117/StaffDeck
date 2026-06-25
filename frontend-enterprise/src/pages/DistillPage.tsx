@@ -2239,7 +2239,7 @@ function SkillSource({
             terminalNodeIds.has(stepId) ? '终止节点' : '流程节点',
           ].filter(Boolean).join(' · ');
           const routeText = outgoingEdges.length > 0
-            ? outgoingEdges.map((edge, edgeIndex) => sourceEdgeSummary(edge, nodeNameMap, edgeIndex)).join('\n')
+            ? outgoingEdges.map((edge, edgeIndex) => sourceEdgeSummary(edge, nodeNameMap, edgeIndex, outgoingEdges)).join('\n')
             : terminalNodeIds.has(stepId)
               ? '流程结束'
               : '未配置后续节点';
@@ -2662,6 +2662,14 @@ function buildSkillFlowCanvasLayout(
     if (sourceId) acc[sourceId] = (acc[sourceId] || 0) + 1;
     return acc;
   }, {});
+  const sourceEdgeLabelCounts = rawEdges.reduce<Record<string, Record<string, number>>>((acc, edge) => {
+    const sourceId = String(edge.source_node_id || '').trim();
+    if (!sourceId) return acc;
+    const label = normalizedEdgeLabel(edge, nodeNameMap);
+    if (!acc[sourceId]) acc[sourceId] = {};
+    acc[sourceId][label] = (acc[sourceId][label] || 0) + 1;
+    return acc;
+  }, {});
   const incomingCounts = rawEdges.reduce<Record<string, number>>((acc, edge) => {
     const targetId = String(edge.next_node_id || '');
     if (targetId) acc[targetId] = (acc[targetId] || 0) + 1;
@@ -2701,9 +2709,11 @@ function buildSkillFlowCanvasLayout(
     const source = positionMap.get(sourceId);
     const target = positionMap.get(targetId);
     if (!source || !target) return;
-    const label = edgeDisplayLabel(edge, nodeNameMap);
-    const title = incomingEdgeLabel(edge, nodeNameMap);
     const siblingCount = edgeSiblingCounts[sourceId] || 1;
+    const baseLabel = normalizedEdgeLabel(edge, nodeNameMap);
+    const hasDuplicateSourceLabel = (sourceEdgeLabelCounts[sourceId]?.[baseLabel] || 0) > 1;
+    const label = flowEdgeDisplayLabel(edge, nodeNameMap, siblingCount, hasDuplicateSourceLabel);
+    const title = incomingEdgeLabel(edge, nodeNameMap);
     const siblingIndex = edgeSiblingIndexes[sourceId] || 0;
     edgeSiblingIndexes[sourceId] = siblingIndex + 1;
     const incomingCount = incomingCounts[targetId] || 1;
@@ -3087,12 +3097,14 @@ function sideReturnFlowPath(
 function incomingEdgeLabel(edge: Record<string, unknown>, nodeNameMap: Record<string, string> = {}): string {
   const source = String(edge.source_node_id || '');
   const sourceName = source && nodeNameMap[source] ? nodeNameMap[source] : source;
+  const targetName = edgeTargetName(edge, nodeNameMap);
   const label = String(edge.label || '');
   const condition = String(edge.condition || '');
-  if (label && condition) return `${label}（${condition}）`;
-  if (label) return label;
-  if (condition) return condition;
-  return sourceName ? `来自 ${sourceName}` : '流转';
+  const route = [sourceName, targetName].filter(Boolean).join(' -> ');
+  const detail = label && condition ? `${label}（${condition}）` : label || condition;
+  if (route && detail) return `${route}：${detail}`;
+  if (route) return route;
+  return detail || '流转';
 }
 
 function edgeDisplayLabel(edge: Record<string, unknown>, nodeNameMap: Record<string, string> = {}): string {
@@ -3105,16 +3117,59 @@ function edgeDisplayLabel(edge: Record<string, unknown>, nodeNameMap: Record<str
   return sourceName ? `来自 ${sourceName}` : '流转';
 }
 
-function sourceEdgeSummary(edge: Record<string, unknown>, nodeNameMap: Record<string, string> = {}, index = 0): string {
+function normalizedEdgeLabel(edge: Record<string, unknown>, nodeNameMap: Record<string, string> = {}): string {
+  return edgeDisplayLabel(edge, nodeNameMap).replace(/\s+/g, ' ').trim() || '流转';
+}
+
+function edgeTargetName(edge: Record<string, unknown>, nodeNameMap: Record<string, string> = {}): string {
   const targetId = String(edge.next_node_id || '').trim();
-  const targetName = targetId ? nodeNameMap[targetId] || targetId : '未指定节点';
+  return targetId ? nodeNameMap[targetId] || targetId : '';
+}
+
+function hasDuplicateSiblingEdgeLabel(
+  edge: Record<string, unknown>,
+  siblings: Array<Record<string, unknown>>,
+  nodeNameMap: Record<string, string> = {},
+): boolean {
+  if (siblings.length <= 1) return false;
+  const sourceId = String(edge.source_node_id || '').trim();
+  const label = normalizedEdgeLabel(edge, nodeNameMap);
+  return siblings.filter((item) => (
+    String(item.source_node_id || '').trim() === sourceId
+    && normalizedEdgeLabel(item, nodeNameMap) === label
+  )).length > 1;
+}
+
+function flowEdgeDisplayLabel(
+  edge: Record<string, unknown>,
+  nodeNameMap: Record<string, string> = {},
+  siblingCount = 1,
+  hasDuplicateSourceLabel = false,
+): string {
+  const label = normalizedEdgeLabel(edge, nodeNameMap);
+  const targetName = edgeTargetName(edge, nodeNameMap);
+  const genericLabel = label === '流转' || label.startsWith('来自 ');
+  if (siblingCount > 1 && targetName && (hasDuplicateSourceLabel || genericLabel)) {
+    return `${label} · 到${targetName}`;
+  }
+  return label;
+}
+
+function sourceEdgeSummary(
+  edge: Record<string, unknown>,
+  nodeNameMap: Record<string, string> = {},
+  index = 0,
+  siblingEdges: Array<Record<string, unknown>> = [],
+): string {
+  const targetName = edgeTargetName(edge, nodeNameMap) || '未指定节点';
   const label = String(edge.label || '').trim();
   const condition = String(edge.condition || '').trim();
   const hasPriority = edge.priority !== undefined && edge.priority !== null && String(edge.priority).trim() !== '';
   const priority = hasPriority && typeof edge.priority === 'number' ? edge.priority : hasPriority && Number.isFinite(Number(edge.priority)) ? Number(edge.priority) : index;
   const prefix = label || condition;
+  const branchText = hasDuplicateSiblingEdgeLabel(edge, siblingEdges, nodeNameMap) ? '并行分叉 · ' : '';
   const priorityText = hasPriority && Number.isFinite(priority) ? ` · 优先级 ${priority}` : '';
-  return `${prefix ? `${prefix} -> ` : ''}${targetName}${priorityText}`;
+  return `${branchText}${prefix ? `${prefix} -> ` : ''}${targetName}${priorityText}`;
 }
 
 function compactEdgeLabel(value: string): string {
