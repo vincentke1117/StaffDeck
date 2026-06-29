@@ -5437,6 +5437,10 @@ body,
   gap: 4px;
 }
 
+.message-item.assistant.status-only-item {
+  margin-top: 18px !important;
+}
+
 .message-assistant-avatar {
   width: 54px !important;
   height: 64px !important;

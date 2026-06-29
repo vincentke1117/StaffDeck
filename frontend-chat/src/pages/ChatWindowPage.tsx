@@ -3035,7 +3035,7 @@ export default function ChatWindowPage() {
               }
               void traceTick;
               return (
-                <div key={item.id} className={`message-item ${item.role}`}>
+                <div key={item.id} className={`message-item ${item.role}${runningStatusOnly ? ' status-only-item' : ''}`}>
                   <div className={`message-row ${item.role} ${item.isError ? 'error' : ''}`}>
                     <div className={`bubble ${showInlineTrace ? 'has-trace' : ''}${runningStatusOnly ? ' status-only' : ''}`}>
                       {runningStatusOnly ? (
