@@ -5674,66 +5674,24 @@ body,
   width: 100% !important;
 }
 
-.chat-bottom-status {
+.chat-composer-avatar {
   position: absolute;
-  left: 18px;
-  bottom: 108px;
+  left: 30px;
+  bottom: 100px;
   z-index: 8;
-  min-height: 82px;
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  pointer-events: auto;
-}
-
-.chat-bottom-status-avatar {
-  width: 70px !important;
-  height: 82px !important;
-  margin: 0 -12px 12px 0 !important;
+  width: 48px !important;
+  height: 56px !important;
   overflow: visible !important;
   pointer-events: none;
 }
 
-.chat-bottom-status-avatar img {
-  width: 78px !important;
-  height: 91px !important;
+.chat-composer-avatar img {
+  width: 54px !important;
+  height: 63px !important;
   max-width: none !important;
   object-fit: contain !important;
   object-position: center bottom !important;
-  transform: translate(-4px, -7px) !important;
-}
-
-.turn-trace-summary.chat-bottom-status-card {
-  min-width: 138px !important;
-  max-width: min(260px, calc(100vw - 210px)) !important;
-  height: 54px !important;
-  min-height: 54px !important;
-  padding: 0 14px !important;
-  grid-template-columns: 22px minmax(72px, 1fr) 18px !important;
-  column-gap: 8px !important;
-  border: 0.5px solid #e3e7f1 !important;
-  border-radius: 8px !important;
-  color: #8b94aa !important;
-  background: #ffffff !important;
-  box-shadow: 0 12px 26px rgba(34, 37, 48, 0.08) !important;
-}
-
-.turn-trace-summary.chat-bottom-status-card .trace-primary-text {
-  min-width: 72px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.turn-trace-summary.chat-bottom-status-card .trace-chevron-slot {
-  justify-self: end;
-}
-
-:root[data-theme='dark'] .turn-trace-summary.chat-bottom-status-card {
-  color: #c5ccd8 !important;
-  border-color: #3a3d47 !important;
-  background: #202126 !important;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28) !important;
+  transform: translate(-3px, -7px) !important;
 }
 
 @media (max-width: 1180px) {
@@ -5747,10 +5705,5 @@ body,
   .composer-stage,
   .chat-layout.sidebar-collapsed .composer-stage {
     width: 100% !important;
-  }
-
-  .chat-bottom-status {
-    left: 8px;
-    bottom: 104px;
   }
 }

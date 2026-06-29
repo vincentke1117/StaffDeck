@@ -41,6 +41,7 @@ type StreamSlot = {
   timer: number | null;
   accumulated: string;
   turnId: string | null;
+  cancelledTurnId: string | null;
   abortController: AbortController | null;
 };
 
@@ -136,7 +137,15 @@ function createEmptySlot(): SessionSlot {
 }
 
 function createStreamSlot(): StreamSlot {
-  return { loading: false, phase: '', timer: null, accumulated: '', turnId: null, abortController: null };
+  return {
+    loading: false,
+    phase: '',
+    timer: null,
+    accumulated: '',
+    turnId: null,
+    cancelledTurnId: null,
+    abortController: null,
+  };
 }
 
 function createTurnTrace(): TurnTrace {
@@ -1176,6 +1185,7 @@ export default function ChatWindowPage() {
   const storeRef = useRef(new Map<string, SessionSlot>());
   const streamRef = useRef(new Map<string, StreamSlot>());
   const turnTraceRef = useRef(new Map<string, TurnTrace>());
+  const locallyCancelledSessionIdsRef = useRef(new Set<string>());
   const scheduledEventIdsRef = useRef(new Set<string>());
   const scheduledTurnIdsRef = useRef(new Map<string, string>());
   const knownSessionIdsRef = useRef(new Set<string>());
@@ -1441,41 +1451,7 @@ export default function ChatWindowPage() {
     void streamTick;
     return sessionId ? getStreamSlot(sessionId) : createStreamSlot();
   }, [getStreamSlot, sessionId, streamTick]);
-  const bottomTraceStatus = useMemo(() => {
-    void traceTick;
-    if (!sessionId) return null;
-    const candidateTurnIds = [
-      currentStream.turnId || '',
-      ...displayedMessages
-        .slice()
-        .reverse()
-        .map((item) => item.turnId || item.id),
-    ].filter(Boolean);
-    const seen = new Set<string>();
-    for (const turnId of candidateTurnIds) {
-      if (seen.has(turnId)) continue;
-      seen.add(turnId);
-      const trace = turnTraceRef.current.get(turnId);
-      const visibleTrace = trace?.lines.filter((line) => traceLineAllowed(line, uiConfig)) || [];
-      if (!trace || visibleTrace.length === 0) continue;
-      const summary = traceSummary(trace, visibleTrace);
-      if (summary.state === 'running') {
-        return {
-          turnId,
-          summary,
-          details: traceDetails(visibleTrace),
-        };
-      }
-    }
-    if (currentStream.loading) {
-      return {
-        turnId: currentStream.turnId || '__current_stream__',
-        summary: { text: '正在执行', state: 'running' as const },
-        details: [],
-      };
-    }
-    return null;
-  }, [currentStream.loading, currentStream.turnId, displayedMessages, sessionId, traceTick, uiConfig]);
+  const showComposerAvatar = Boolean(sessionId && displayedMessages.length > 0 && displayedProfile);
   const modelMenuItems = useMemo(() => {
     if (!enabledModelConfigs.length) {
       return [
@@ -1828,8 +1804,15 @@ export default function ChatWindowPage() {
   function abortStream() {
     if (!sessionId) return;
     const stream = getStreamSlot(sessionId);
+    const cancelledTurnId = stream.turnId;
     stream.abortController?.abort();
     stream.abortController = null;
+    stream.cancelledTurnId = cancelledTurnId;
+    locallyCancelledSessionIdsRef.current.add(sessionId);
+    if (cancelledTurnId) {
+      turnTraceRef.current.delete(cancelledTurnId);
+      notifyTrace();
+    }
     finalizeStreaming(sessionId);
     appendRealtime(sessionId, {
       id: `local_interrupt_${Date.now()}`,
@@ -1837,8 +1820,9 @@ export default function ChatWindowPage() {
       content: '已停止生成',
       created_at: new Date().toISOString(),
     });
-    stream.loading = false;
-    stream.phase = '';
+    const nextStream = createStreamSlot();
+    nextStream.cancelledTurnId = cancelledTurnId;
+    streamRef.current.set(sessionId, nextStream);
     notifyStream();
   }
 
@@ -2238,6 +2222,7 @@ export default function ChatWindowPage() {
   }, []);
 
   const hydrateRunningSessionFromEvents = useCallback((id: string, events: ChatSessionEventRead[]) => {
+    if (locallyCancelledSessionIdsRef.current.has(id)) return false;
     const stream = getStreamSlot(id);
     if (stream.loading) return false;
 
@@ -2300,6 +2285,7 @@ export default function ChatWindowPage() {
   ]);
 
   const pollScheduledSessionEvents = useCallback((id: string) => {
+    if (locallyCancelledSessionIdsRef.current.has(id)) return Promise.resolve();
     return api
       .get<ChatSessionEventRead[]>(`/api/chat/sessions/${id}/events?tenant_id=${tenantId}`)
       .then((events) => {
@@ -2392,9 +2378,11 @@ export default function ChatWindowPage() {
     const userText = input.trim();
     const requestIntent = composerIntent;
     const turnId = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    locallyCancelledSessionIdsRef.current.delete(currentSessionId);
     setInput('');
     setComposerIntent('normal');
     stream.accumulated = '';
+    stream.cancelledTurnId = null;
     stream.turnId = turnId;
     appendRealtime(currentSessionId, {
       id: `local_${turnId}`,
@@ -2427,6 +2415,10 @@ export default function ChatWindowPage() {
         model_config_id: selectedModelConfig?.id,
       }, (item) => {
         const eventSessionId = String(item.data.sessionId || currentSessionId);
+        const eventStream = getStreamSlot(eventSessionId);
+        if (controller.signal.aborted || eventStream.cancelledTurnId === turnId) {
+          return;
+        }
         if (item.event === 'session_created') {
           return;
         }
@@ -2638,7 +2630,6 @@ export default function ChatWindowPage() {
         }
         if (item.event === 'stream_replace') {
           const next = typeof item.data.content === 'string' ? item.data.content : '';
-          const eventStream = getStreamSlot(eventSessionId);
           if (eventStream.timer) {
             window.clearTimeout(eventStream.timer);
             eventStream.timer = null;
@@ -2651,7 +2642,6 @@ export default function ChatWindowPage() {
         if (item.event === 'stream_delta' || item.event === 'token') {
           const piece = typeof item.data.content === 'string' ? item.data.content : '';
           if (!piece) return;
-          const eventStream = getStreamSlot(eventSessionId);
           eventStream.accumulated += piece;
           if (!eventStream.timer) {
             eventStream.timer = window.setTimeout(() => {
@@ -2684,7 +2674,6 @@ export default function ChatWindowPage() {
           upsertTraceLine(turnId, { id: 'thinking', kind: 'thinking', text: '执行记录', state: 'completed' });
           finalizeStreaming(eventSessionId);
           setLastTurn(result);
-          const eventStream = getStreamSlot(eventSessionId);
           eventStream.loading = false;
           eventStream.phase = '';
           eventStream.abortController = null;
@@ -2925,7 +2914,7 @@ export default function ChatWindowPage() {
               const summary = trace && visibleTrace.length > 0 ? traceSummary(trace, visibleTrace) : null;
               const details = traceDetails(visibleTrace);
               const expanded = expandedTraceIds.includes(turnId);
-              const showInlineTrace = Boolean(summary && summary.state !== 'running');
+              const showInlineTrace = Boolean(summary);
               const visibleContent = staffdeckDisplayText(item.role === 'assistant'
                 ? stripTrailingCitationSummary(item.content)
                 : item.content);
@@ -3090,28 +3079,8 @@ export default function ChatWindowPage() {
         </div>
         <div className="chat-input">
           <div className="composer-stage">
-            {bottomTraceStatus && (
-              <div className="chat-bottom-status" aria-live="polite">
-                <EmployeeAvatarMark profile={displayedProfile} fallback="SD" className="chat-bottom-status-avatar" />
-                <button
-                  type="button"
-                  className={`turn-trace-summary chat-bottom-status-card ${bottomTraceStatus.summary.state}`}
-                  onClick={() => toggleTrace(bottomTraceStatus.turnId)}
-                >
-                  <span className="trace-icon-slot"><StaffdeckIcon name="refresh" /></span>
-                  <span className="trace-primary-text" data-text={bottomTraceStatus.summary.text}>
-                    {bottomTraceStatus.summary.text}
-                  </span>
-                  {bottomTraceStatus.details.length > 0 && (
-                    <span className="trace-chevron-slot">
-                      <StaffdeckIcon
-                        name="arrow"
-                        style={expandedTraceIds.includes(bottomTraceStatus.turnId) ? { transform: 'rotate(90deg)' } : undefined}
-                      />
-                    </span>
-                  )}
-                </button>
-              </div>
+            {showComposerAvatar && displayedProfile && (
+              <EmployeeAvatarMark profile={displayedProfile} fallback="SD" className="chat-composer-avatar" />
             )}
             <form
               className="composer-v2"
