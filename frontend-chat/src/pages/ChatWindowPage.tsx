@@ -1458,6 +1458,7 @@ export default function ChatWindowPage() {
     return sessionId ? getStreamSlot(sessionId) : createStreamSlot();
   }, [getStreamSlot, sessionId, streamTick]);
   const showComposerAvatar = Boolean(sessionId && displayedMessages.length > 0 && displayedProfile);
+  const composerActive = Boolean(input.trim() || displayedMessages.length > 0 || currentStream.loading);
   const modelMenuItems = useMemo(() => {
     if (!enabledModelConfigs.length) {
       return [
@@ -3100,7 +3101,7 @@ export default function ChatWindowPage() {
               <EmployeeAvatarMark profile={displayedProfile} fallback="SD" className="chat-composer-avatar" />
             )}
             <form
-              className="composer-v2"
+              className={`composer-v2${composerActive ? ' composer-active' : ''}`}
               onSubmit={(event) => {
                 event.preventDefault();
                 send();
