@@ -35,6 +35,7 @@ const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 const HEATMAP_ROWS = 4;
 const HEATMAP_COLUMNS = 33;
 const HEATMAP_BUCKETS = HEATMAP_ROWS * HEATMAP_COLUMNS;
+const SD1_HEATMAP_MONTHS = [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0];
 
 type ReplyStats = {
   total: number;
@@ -486,7 +487,7 @@ function ConversationHeatmap({ byDay }: { byDay: Record<string, number> }) {
   return (
     <div className="employee-heatmap">
       <div className="employee-heatmap-months">
-        {monthLabels(days).map((item) => (
+        {monthLabels().map((item) => (
           <span
             key={`${item.label}-${item.offset}`}
             style={{ gridColumn: `${item.offset + 1} / span ${item.span}` }}
@@ -522,20 +523,25 @@ function ConversationHeatmap({ byDay }: { byDay: Record<string, number> }) {
 }
 
 function heatmapDays(byDay: Record<string, number>) {
-  const today = new Date();
-  const start = new Date(today);
-  start.setDate(today.getDate() - 365);
+  const year = new Date().getFullYear();
   return Array.from({ length: HEATMAP_BUCKETS }, (_, index) => {
-    const startOffset = Math.floor((index * 365) / HEATMAP_BUCKETS);
-    const endOffset = Math.max(startOffset, Math.floor(((index + 1) * 365) / HEATMAP_BUCKETS) - 1);
-    const bucketStart = new Date(start);
-    bucketStart.setDate(start.getDate() + startOffset);
-    const bucketEnd = new Date(start);
-    bucketEnd.setDate(start.getDate() + endOffset);
+    const column = Math.floor(index / HEATMAP_ROWS);
+    const row = index % HEATMAP_ROWS;
+    const monthSlot = Math.min(SD1_HEATMAP_MONTHS.length - 1, Math.floor((column * SD1_HEATMAP_MONTHS.length) / HEATMAP_COLUMNS));
+    const monthIndex = SD1_HEATMAP_MONTHS[monthSlot];
+    const monthStartColumn = Math.floor((monthSlot * HEATMAP_COLUMNS) / SD1_HEATMAP_MONTHS.length);
+    const monthEndColumn = Math.floor(((monthSlot + 1) * HEATMAP_COLUMNS) / SD1_HEATMAP_MONTHS.length);
+    const columnsInMonth = Math.max(1, monthEndColumn - monthStartColumn);
+    const cellsInMonth = columnsInMonth * HEATMAP_ROWS;
+    const cellInMonth = (column - monthStartColumn) * HEATMAP_ROWS + row;
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+    const startDay = Math.min(daysInMonth, Math.floor((cellInMonth * daysInMonth) / cellsInMonth) + 1);
+    const endDay = Math.max(startDay, Math.min(daysInMonth, Math.floor(((cellInMonth + 1) * daysInMonth) / cellsInMonth)));
+    const bucketStart = new Date(year, monthIndex, startDay);
+    const bucketEnd = new Date(year, monthIndex, endDay);
     let count = 0;
-    for (let offset = startOffset; offset <= endOffset; offset += 1) {
-      const day = new Date(start);
-      day.setDate(start.getDate() + offset);
+    for (let dayOfMonth = startDay; dayOfMonth <= endDay; dayOfMonth += 1) {
+      const day = new Date(year, monthIndex, dayOfMonth);
       count += byDay[dateKey(day)] || 0;
     }
     const startKey = dateKey(bucketStart);
@@ -549,25 +555,15 @@ function heatmapDays(byDay: Record<string, number>) {
   });
 }
 
-function monthLabels(days: ReturnType<typeof heatmapDays>) {
-  const labels: Array<{ label: string; offset: number; span: number }> = [];
-  let last = '';
-  days.forEach((day, index) => {
-    const label = `${day.date.getMonth() + 1}月`;
-    if (label !== last) {
-      const offset = Math.floor(index / HEATMAP_ROWS);
-      const previous = labels[labels.length - 1];
-      if (previous && offset <= previous.offset) {
-        labels[labels.length - 1] = { label, offset: previous.offset, span: 1 };
-      } else {
-        labels.push({ label, offset, span: 1 });
-      }
-      last = label;
-    }
-  });
-  return labels.map((item, index) => {
-    const nextOffset = labels[index + 1]?.offset ?? HEATMAP_COLUMNS;
-    return { ...item, span: Math.max(2, nextOffset - item.offset) };
+function monthLabels() {
+  return SD1_HEATMAP_MONTHS.map((monthIndex, index) => {
+    const offset = Math.floor((index * HEATMAP_COLUMNS) / SD1_HEATMAP_MONTHS.length);
+    const nextOffset = Math.floor(((index + 1) * HEATMAP_COLUMNS) / SD1_HEATMAP_MONTHS.length);
+    return {
+      label: `${monthIndex + 1}月`,
+      offset,
+      span: Math.max(2, nextOffset - offset),
+    };
   });
 }
 
