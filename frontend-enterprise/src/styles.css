@@ -3683,6 +3683,17 @@ body.skill-distill-fixed .content {
   font-weight: 760;
 }
 
+.tool-probe-hint.ant-typography {
+  margin: -2px 0 10px !important;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.tool-test-result-label {
+  margin-top: 12px;
+}
+
 .tool-test-card-title {
   display: inline-flex;
   align-items: center;

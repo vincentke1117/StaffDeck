@@ -497,6 +497,8 @@ function ToolProbeCard({ form }: { form: FormInstance<ToolFormValues> }) {
   const [sampleJson, setSampleJson] = useState('{}');
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
+  const method = Form.useWatch('method', form) || 'POST';
+  const isGetMethod = method === 'GET';
 
   async function probe() {
     let values: ToolFormValues;
@@ -512,6 +514,15 @@ function ToolProbeCard({ form }: { form: FormInstance<ToolFormValues> }) {
       sampleArguments = parseJson(sampleJson, {});
     } catch {
       message.error('测试参数不是合法 JSON');
+      return;
+    }
+    if (
+      payload.tool_type === 'http'
+      && payload.method !== 'GET'
+      && payload.url.includes('?')
+      && Object.keys(sampleArguments).length === 0
+    ) {
+      message.error('URL 已包含查询参数时请把 HTTP Method 切换为 GET；POST 会把测试参数作为 JSON Body 发送。');
       return;
     }
     setLoading(true);
@@ -549,7 +560,16 @@ function ToolProbeCard({ form }: { form: FormInstance<ToolFormValues> }) {
       <Typography.Paragraph type="secondary">
         无需保存，直接用当前配置测试连接。
       </Typography.Paragraph>
+      <div className="tool-test-section-title">
+        {isGetMethod ? '测试参数 JSON（拼到 URL Query）' : '测试参数 JSON（作为请求 Body）'}
+      </div>
+      <Typography.Paragraph type="secondary" className="tool-probe-hint">
+        {isGetMethod
+          ? 'GET 会把这里的字段作为查询参数追加到 URL；参数值填写未编码原文，例如 timezone 用 Asia/Shanghai。'
+          : '非 GET 请求会把这里的 JSON 作为请求体发送；仅 URL 查询串不会变成请求 Body。'}
+      </Typography.Paragraph>
       <Input.TextArea rows={5} value={sampleJson} onChange={(event) => setSampleJson(event.target.value)} />
+      <div className="tool-test-section-title tool-test-result-label">探测结果</div>
       <Input.TextArea rows={8} value={result} readOnly style={{ marginTop: 12 }} />
     </Card>
   );
@@ -665,7 +685,7 @@ function buildToolPayload(values: ToolFormValues) {
       bucket: values.bucket || '未分桶',
       tool_type: values.tool_type || 'http',
       method: values.method,
-      url: values.url,
+      url: String(values.url || '').trim(),
       headers: parseJson(values.headers, {}),
       auth: parseJson(values.auth, {}),
       mcp_config: values.tool_type === 'mcp' ? parseJson(values.mcp_config, {}) : {},

@@ -173,6 +173,62 @@ def test_probe_get_tool_preserves_query_string_when_arguments_empty(
     }
 
 
+def test_probe_get_tool_sends_sample_arguments_as_query_params(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requested: dict[str, object] = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def request(self, method, url, headers=None, json=None, params=None):
+            requested.update({"method": method, "url": url, "params": params, "json": json})
+            return httpx.Response(200, json={"timezone": "Asia/Shanghai"})
+
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+    with _test_session() as db:
+        db.add(Tenant(id="tenant_demo", name="Demo"))
+        db.commit()
+
+        result = probe_tool(
+            ToolProbeRequest(
+                tenant_id="tenant_demo",
+                name="weather.forecast",
+                method="GET",
+                url="https://api.open-meteo.com/v1/forecast",
+                sample_arguments={
+                    "latitude": "39.90",
+                    "longitude": "116.40",
+                    "current": "temperature_2m,wind_speed_10m",
+                    "daily": "weather_code,temperature_2m_max,temperature_2m_min",
+                    "timezone": "Asia/Shanghai",
+                },
+            ),
+            db,
+        )
+
+    assert result.success is True
+    assert requested == {
+        "method": "GET",
+        "url": "https://api.open-meteo.com/v1/forecast",
+        "params": {
+            "latitude": "39.90",
+            "longitude": "116.40",
+            "current": "temperature_2m,wind_speed_10m",
+            "daily": "weather_code,temperature_2m_max,temperature_2m_min",
+            "timezone": "Asia/Shanghai",
+        },
+        "json": None,
+    }
+
+
 def test_probe_mcp_tool_error_is_stable() -> None:
     with _test_session() as db:
         db.add(Tenant(id="tenant_demo", name="Demo"))
