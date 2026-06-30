@@ -13902,12 +13902,23 @@ body:has(.sd1-scheduled-page) .topbar {
 
 :root[data-theme='dark'] .sd1-rail-chat,
 :root[data-theme='dark'] .sd1-sidebar.is-expanded .sd1-rail-chat {
-  color: #111827 !important;
-  background: #f0f2f6 !important;
+  color: #d8dcef !important;
+  border-color: #303846 !important;
+  background: #111827 !important;
+  box-shadow: none !important;
 }
 
-:root[data-theme='dark'] .sd1-rail-chat .sd1-rail-menu-text {
-  color: #111827 !important;
+:root[data-theme='dark'] .sd1-rail-chat:hover,
+:root[data-theme='dark'] .sd1-sidebar.is-expanded .sd1-rail-chat:hover {
+  color: #f0f2f6 !important;
+  border-color: #3a4558 !important;
+  background: #172033 !important;
+}
+
+:root[data-theme='dark'] .sd1-rail-chat .sd1-icon,
+:root[data-theme='dark'] .sd1-rail-chat .sd1-rail-menu-text,
+:root[data-theme='dark'] .sd1-rail-chat .sd1-icon-arrow {
+  color: inherit !important;
 }
 
 :root[data-theme='dark'] .sd1-agents-search .ant-input-affix-wrapper,
@@ -13950,9 +13961,16 @@ body:has(.sd1-scheduled-page) .topbar {
 
 :root[data-theme='dark'] .sd1-agents-page .employee-roster-chat.ant-btn,
 :root[data-theme='dark'] .sd1-agents-page .employee-roster-head .ant-dropdown-trigger.ant-btn {
-  color: #c5ccd8 !important;
-  background: #f0f2f6 !important;
-  border-color: transparent !important;
+  color: #d8dcef !important;
+  background: #202938 !important;
+  border-color: #303846 !important;
+}
+
+:root[data-theme='dark'] .sd1-agents-page .employee-roster-chat.ant-btn:hover,
+:root[data-theme='dark'] .sd1-agents-page .employee-roster-head .ant-dropdown-trigger.ant-btn:hover {
+  color: #f0f2f6 !important;
+  background: #273144 !important;
+  border-color: #3a4558 !important;
 }
 
 :root[data-theme='dark'] .sd1-agents-page .employee-roster-head,
