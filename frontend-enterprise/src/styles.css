@@ -14920,3 +14920,88 @@ body:has(.sd1-scheduled-page) .topbar {
     line-height: 23px !important;
   }
 }
+
+@media (max-width: 760px) {
+  .employee-heatmap {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: 86px !important;
+    grid-template-rows: 14px 42px 14px !important;
+    justify-self: stretch !important;
+    overflow: hidden !important;
+  }
+
+  .employee-heatmap-months {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    padding-left: 32px !important;
+    grid-template-columns: repeat(33, minmax(0, 1fr)) !important;
+    column-gap: 2px !important;
+    font-size: 8px !important;
+    line-height: 12px !important;
+  }
+
+  .employee-heatmap-months span {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: clip !important;
+  }
+
+  .employee-heatmap-body {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    grid-template-columns: 26px minmax(0, 1fr) !important;
+    gap: 6px !important;
+    overflow: hidden !important;
+  }
+
+  .employee-heatmap-weekdays {
+    height: 34px !important;
+    grid-template-rows: repeat(4, 6px) !important;
+    row-gap: 3px !important;
+    font-size: 8px !important;
+    line-height: 8px !important;
+  }
+
+  .employee-heatmap-grid {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    grid-template-columns: repeat(33, minmax(0, 1fr)) !important;
+    grid-template-rows: repeat(4, 6px) !important;
+    grid-auto-flow: row !important;
+    grid-auto-columns: auto !important;
+    gap: 3px 2px !important;
+  }
+
+  .employee-heatmap-cell {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: 6px !important;
+    min-height: 6px !important;
+    max-height: 6px !important;
+    border-radius: 2px !important;
+  }
+
+  .employee-heatmap-legend {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    min-height: 10px !important;
+    gap: 3px !important;
+    justify-content: center !important;
+    font-size: 8px !important;
+    line-height: 10px !important;
+  }
+
+  .employee-heatmap-legend i {
+    width: 6px !important;
+    min-width: 6px !important;
+    height: 6px !important;
+  }
+}
