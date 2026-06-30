@@ -12307,7 +12307,7 @@ body,
   left: 34px;
   right: 34px;
   height: 2px;
-  background: #d7dbe2;
+  background: #18181a;
 }
 
 .employee-memory-event {
@@ -12345,8 +12345,8 @@ body,
   display: grid;
   place-items: center;
   border-radius: 999px;
-  color: #202226;
-  background: #202226;
+  color: #18181a;
+  background: #18181a;
   box-shadow: 0 0 0 4px #ffffff;
 }
 
@@ -13161,7 +13161,13 @@ body,
 }
 
 :root[data-theme='dark'] .employee-memory-timeline::before {
-  background: #363944 !important;
+  background: #596173 !important;
+}
+
+:root[data-theme='dark'] .employee-memory-dot {
+  color: #f0f2f6 !important;
+  background: #f0f2f6 !important;
+  box-shadow: none !important;
 }
 
 :root[data-theme='dark'] .employee-profile-tabs button.active {
