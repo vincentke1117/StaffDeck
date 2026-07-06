@@ -5303,7 +5303,7 @@ textarea.ant-input:focus {
 
 .general-skill-code-editor {
   position: relative;
-  min-height: 560px;
+  min-height: 0;
   overflow: hidden;
   background: var(--code-bg);
   color: var(--code-fg);
@@ -5340,7 +5340,7 @@ textarea.ant-input:focus {
   z-index: 2;
   width: 100%;
   height: 100%;
-  min-height: 560px;
+  min-height: 0;
   margin: 0;
   padding: 18px 20px;
   overflow: auto;
@@ -5367,6 +5367,7 @@ textarea.ant-input:focus {
 .general-skill-file-editor {
   display: grid;
   grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  flex: 1 1 auto;
   min-height: 560px;
   overflow: hidden;
   background: var(--code-bg);
@@ -5377,8 +5378,8 @@ textarea.ant-input:focus {
   min-width: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  border-right: 1px solid var(--code-border);
-  background: var(--code-sidebar-bg);
+  border-right: 1px solid #e3e7f1;
+  background: #ffffff;
 }
 
 .general-skill-file-tree-title,
@@ -5388,17 +5389,18 @@ textarea.ant-input:focus {
   align-items: center;
   gap: 8px;
   padding: 0 14px;
-  color: var(--muted-foreground);
-  border-bottom: 1px solid var(--code-border);
-  background: var(--code-tab-bg);
+  color: #757f9c;
+  border-bottom: 1px solid #e3e7f1;
+  background: #f6f6f6;
   font-size: 12px;
-  font-weight: 760;
+  font-weight: 500;
 }
 
 .general-skill-file-tree-list {
   min-height: 0;
   overflow: auto;
   padding: 8px;
+  background: #ffffff;
 }
 
 .general-skill-file-node {
@@ -5408,7 +5410,7 @@ textarea.ant-input:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--muted-foreground);
+  color: #757f9c;
   background: transparent;
   border: 0;
   border-radius: 8px;
@@ -5427,20 +5429,16 @@ textarea.ant-input:focus {
 
 .general-skill-file-node:hover,
 .general-skill-file-node.active {
-  color: var(--code-fg);
-  background: var(--code-sidebar-active);
-}
-
-.general-skill-file-node.active {
-  box-shadow: inset 2px 0 0 var(--accent);
+  color: #18181a;
+  background: #f6f6f6;
 }
 
 .general-skill-file-actions {
   display: flex;
   gap: 8px;
   padding: 10px;
-  border-top: 1px solid var(--code-border);
-  background: var(--code-sidebar-bg);
+  border-top: 1px solid #e3e7f1;
+  background: #ffffff;
 }
 
 .general-skill-file-pane {
@@ -5452,7 +5450,7 @@ textarea.ant-input:focus {
 .general-skill-file-tab span {
   min-width: 0;
   overflow: hidden;
-  color: var(--code-fg);
+  color: #18181a;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

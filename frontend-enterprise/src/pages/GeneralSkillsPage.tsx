@@ -1,15 +1,10 @@
 import {
-  ArrowLeftOutlined,
   CheckCircleOutlined,
-  CloudOutlined,
   CloseCircleOutlined,
   DeleteOutlined,
   EditOutlined,
   ExperimentOutlined,
-  FileTextOutlined,
-  FolderOpenOutlined,
   GithubOutlined,
-  PlayCircleOutlined,
   PlusOutlined,
   TeamOutlined,
   UploadOutlined,
@@ -57,11 +52,15 @@ import { StatCard } from '@/components/StatCard';
 import { ResourceImportDialog } from '@/components/ResourceImportDialog';
 import CodeBlock, { renderCodeTokens } from '../components/CodeBlock';
 import IconAdd from '../assets/icons/add.svg?react';
+import IconArrowRight from '../assets/icons/arrow-right.svg?react';
+import IconFolder from '../assets/icons/cap-folder.svg?react';
 import IconChevronDown from '../assets/icons/chevron-down.svg?react';
+import IconPlay from '../assets/icons/play.svg?react';
 import IconClear from '../assets/icons/field-clear.svg?react';
 import IconEdit from '../assets/icons/edit.svg?react';
 import IconMore from '../assets/icons/more.svg?react';
 import IconRefresh from '../assets/icons/refresh.svg?react';
+import IconProfileFile from '../assets/icons/profile-file.svg?react';
 import IconSearch from '../assets/icons/search.svg?react';
 import IconSkill from '../assets/icons/plaza-skill.svg?react';
 import IconTrash from '../assets/icons/trash.svg?react';
@@ -82,14 +81,80 @@ const EMPTY_SKILL_MARKDOWN = `# 技能说明
 
 在这里编写技能文档。名称、Slug 和描述由上方表单维护，系统不会从文档中自动抽取。`;
 
-const EDITOR_CARD_CLASS =
+const SECTION_CARD_CLASS =
   'rounded-[14px] border border-[#eceef1] bg-white dark:border-white/10 dark:bg-[#26272d]';
-const EDITOR_CARD_TITLE_CLASS = 'mb-[16px] text-[14px] font-medium text-[#18181a] dark:text-white';
-const EDITOR_FIELD_LABEL_CLASS = 'text-[13px] font-medium text-[#18181a] dark:text-white';
-const EDITOR_ACTION_OUTLINE_CLASS =
-  'h-8 gap-1 rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-5 text-[12px] font-normal text-[#757f9c] hover:border-[#cbd3e6] hover:bg-white hover:text-[#18181a] dark:border-border dark:bg-(--surface) dark:text-muted-foreground dark:hover:bg-(--surface)';
-const EDITOR_ACTION_PRIMARY_CLASS =
-  'h-8 gap-1 rounded-[10px] bg-[#18181a] px-5 text-[12px] font-normal text-white hover:bg-[#303030]';
+const SECTION_CARD_TITLE_CLASS = 'text-[14px] font-medium text-[#18181a] dark:text-white';
+const FIELD_LABEL_CLASS = 'text-[13px] font-medium text-[#18181a] dark:text-white';
+const RETURN_BUTTON_CLASS =
+  'h-8 gap-1 rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-5 text-[12px] font-normal text-[#757f9c] hover:border-[#cbd3e6]! hover:bg-white! hover:text-[#18181a]! aria-expanded:border-[#cbd3e6]! aria-expanded:bg-white! aria-expanded:text-[#18181a]! dark:border-border dark:bg-(--surface) dark:text-muted-foreground dark:hover:bg-(--surface)! dark:aria-expanded:bg-(--surface)!';
+const PRIMARY_BUTTON_CLASS =
+  'h-8 gap-1 rounded-[10px] bg-[#18181a] px-5 text-[12px] font-normal text-white hover:bg-[#303030] dark:bg-white dark:text-[#18181a] dark:hover:bg-white/90';
+const DELETE_BUTTON_CLASS =
+  'h-8 gap-1 rounded-[10px] border-[0.5px] border-[#e3e7f1] bg-white px-5 text-[12px] font-normal text-[#d20b0b] hover:border-[#f3b6b6]! hover:bg-[#fce7e7]! hover:text-[#d20b0b]! aria-expanded:border-[#f3b6b6]! aria-expanded:bg-[#fce7e7]! aria-expanded:text-[#d20b0b]! dark:border-border dark:bg-(--surface) dark:text-[#ff6b6b] dark:hover:bg-[#d20b0b]/20! dark:hover:text-[#ff6b6b]! dark:aria-expanded:bg-[#d20b0b]/20! dark:aria-expanded:text-[#ff6b6b]!';
+const EDITOR_ACTION_OUTLINE_CLASS = RETURN_BUTTON_CLASS;
+const EDITOR_ACTION_PRIMARY_CLASS = PRIMARY_BUTTON_CLASS;
+const HIDDEN_FILE_INPUT_CLASS =
+  'pointer-events-none fixed size-px opacity-0 [inset:auto_auto_0_0]';
+const SKILL_EDITOR_DRAG_ACTIVE_CLASS =
+  'border-[#18181a] shadow-[0_0_0_1px_#eef1f6,var(--tw-shadow)] shadow-sm dark:border-white dark:shadow-[0_0_0_1px_rgba(255,255,255,0.12),var(--tw-shadow)]';
+const SKILL_DROP_HINT_CLASS =
+  'pointer-events-none absolute inset-x-[18px] bottom-[18px] top-[46px] z-[6] flex items-center justify-center gap-3 rounded-[14px] border border-dashed border-[#18181a] bg-white/90 text-[15px] font-semibold text-[#18181a] shadow-sm backdrop-blur-sm dark:border-white dark:bg-[#26272d]/90 dark:text-white';
+const SKILL_FILE_EDITOR_CLASS =
+  'grid min-h-[560px] flex-1 grid-cols-[minmax(180px,240px)_minmax(0,1fr)] overflow-hidden border-t border-[#e3e7f1] bg-[#fafafa] dark:border-[#343741] dark:bg-[#1e1e1e]';
+const SKILL_FILE_TREE_CLASS =
+  'grid min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] border-r border-[#e3e7f1] bg-white dark:border-[#343741] dark:bg-[#202126]';
+const SKILL_FILE_TREE_HEADER_CLASS =
+  'flex min-h-[44px] items-center gap-2 border-b border-[#e3e7f1] bg-[#f6f6f6] px-[14px] text-[12px] font-medium text-[#757f9c] dark:border-[#343741] dark:bg-[#26272d]';
+const SKILL_FILE_TREE_LIST_CLASS =
+  'min-h-0 overflow-auto bg-white p-2 dark:bg-[#202126]';
+const SKILL_FILE_TREE_ACTIONS_CLASS =
+  'flex gap-2 border-t border-[#e3e7f1] bg-white p-[10px] dark:border-[#343741] dark:bg-[#202126]';
+const SKILL_FILE_PANE_CLASS =
+  'grid min-w-0 grid-rows-[auto_minmax(0,1fr)]';
+const SKILL_FILE_TAB_CLASS =
+  'flex min-h-[44px] items-center gap-2 border-b border-[#e3e7f1] bg-[#f6f6f6] px-[14px] text-[12px] font-medium text-[#757f9c] dark:border-[#343741] dark:bg-[#26272d]';
+const SKILL_CODE_EDITOR_CLASS =
+  'relative min-h-0 overflow-hidden bg-[#fafafa] font-mono text-[13px] leading-[1.7] tab-[2] shadow-[inset_0_1px_0_#e3e7f1] dark:bg-[#1e1e1e] dark:text-[#d4d4d4] dark:shadow-[inset_0_1px_0_#343741]';
+const SKILL_CODE_HIGHLIGHT_CLASS =
+  'pointer-events-none absolute inset-0 z-[1] m-0 overflow-hidden whitespace-pre p-[18px_20px] text-[#18181a] tab-[2] dark:text-[#d4d4d4]';
+const SKILL_CODE_HIGHLIGHT_CODE_CLASS =
+  'block w-max min-w-full font-[inherit] will-change-transform';
+const SKILL_CODE_INPUT_CLASS =
+  'absolute inset-0 z-[2] m-0 size-full min-h-0 resize-none overflow-auto rounded-none border-0 bg-transparent! p-[18px_20px] font-[inherit] leading-[inherit] tracking-normal whitespace-pre text-transparent caret-[#18181a] outline-none tab-[2] [scrollbar-gutter:stable] selection:bg-[rgba(0,120,215,0.24)] [-webkit-text-fill-color:transparent] dark:caret-[#d4d4d4] dark:selection:bg-[rgba(38,79,120,0.86)]';
+const SKILL_RESULT_LAYOUT_CLASS = 'grid gap-5';
+const SKILL_SECTION_LABEL_CLASS =
+  'mb-2 text-[12px] font-semibold text-[#757f9c] dark:text-[#a8afbd]';
+const SKILL_REPLY_PANEL_CLASS =
+  'rounded-xl border border-[#eceef1] bg-white p-[16px_18px] dark:border-white/10 dark:bg-[#26272d]';
+const SKILL_REPLY_TEXT_CLASS =
+  'mb-0! text-[15px] leading-[1.8] text-[#18181a] dark:text-white';
+const SKILL_TRACE_LIST_CLASS =
+  'grid gap-[10px] rounded-xl border border-[#eceef1] bg-[#fbfcfd] p-[12px_14px] dark:border-white/10 dark:bg-[#26272d]';
+const SKILL_TRACE_ITEM_CLASS =
+  'grid min-w-0 grid-cols-[12px_minmax(0,1fr)] gap-[10px]';
+const SKILL_TRACE_ITEM_BODY_CLASS = 'min-w-0 max-w-full';
+const SKILL_TRACE_DOT_CLASS =
+  'mt-[9px] size-[7px] shrink-0 rounded-full bg-[#18181a] dark:bg-white';
+const SKILL_TRACE_TITLE_CLASS =
+  'text-[13px] font-semibold text-[#18181a] dark:text-white';
+const SKILL_TRACE_MESSAGE_CLASS =
+  'mt-[2px] break-words text-[12px] leading-[1.55] text-[#757f9c] dark:text-[#a8afbd]';
+const SKILL_TRACE_CODE_DETAILS_CLASS =
+  'group/gs-trace box-border w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-[#eceef1] bg-white dark:border-white/10 dark:bg-[#26272d]';
+const SKILL_TRACE_CODE_SUMMARY_CLASS =
+  "flex min-h-[38px] cursor-pointer list-none items-center gap-2 px-3 py-[9px] text-[12px] font-semibold text-[#18181a] select-none after:ml-auto after:text-[12px] after:font-medium after:text-[#757f9c] after:content-['展开'] group-open/gs-trace:border-b group-open/gs-trace:border-[#eceef1] group-open/gs-trace:after:content-['收起'] dark:text-white dark:after:text-[#a8afbd] dark:group-open/gs-trace:border-white/10 [&::-webkit-details-marker]:hidden";
+const SKILL_CODE_BLOCK_CLASS =
+  'm-0 max-h-[520px] max-w-full overflow-auto whitespace-pre border-0 p-[16px_18px] font-mono text-[12px] leading-[1.65]';
+const SKILL_OUTPUT_STACK_CLASS = 'grid gap-[10px]';
+
+function skillFileNodeClass(active: boolean) {
+  return cn(
+    'flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg border-0 bg-transparent px-[10px] py-2 text-left text-[12px] text-[#757f9c] transition-[background,color,box-shadow] duration-150',
+    'hover:bg-[#f6f6f6] hover:text-[#18181a] dark:hover:bg-[#37373d] dark:hover:text-white',
+    active && 'bg-[#f6f6f6] text-[#18181a] dark:bg-[#37373d] dark:text-white',
+  );
+}
+
 const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 const GENERAL_SKILL_RUN_TIMEOUT_MS = 120_000;
 const FOLDER_INPUT_PROPS = {
@@ -198,16 +263,18 @@ function RunCodePanel({
   code,
   language,
   defaultOpen = false,
+  className,
 }: {
   title: string;
   code: string;
   language?: string;
   defaultOpen?: boolean;
+  className?: string;
 }) {
   return (
-    <details className="general-trace-code general-output-code" open={defaultOpen}>
-      <summary>{title}</summary>
-      <CodeBlock className="general-code-block" code={code} language={language || codeLanguage(code)} />
+    <details className={cn(SKILL_TRACE_CODE_DETAILS_CLASS, 'mt-0', className)} open={defaultOpen}>
+      <summary className={SKILL_TRACE_CODE_SUMMARY_CLASS}>{title}</summary>
+      <CodeBlock className={SKILL_CODE_BLOCK_CLASS} code={code} language={language || codeLanguage(code)} />
     </details>
   );
 }
@@ -995,11 +1062,12 @@ function normalizedSkillFiles(files: GeneralSkillFile[] = []): string {
   );
 }
 
-function EditorCard({
+function SectionCard({
   className,
   bodyClassName,
   title,
   extra,
+  loading,
   children,
   ...rest
 }: {
@@ -1007,29 +1075,34 @@ function EditorCard({
   bodyClassName?: string;
   title?: ReactNode;
   extra?: ReactNode;
+  loading?: boolean;
   children?: ReactNode;
 } & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) {
   return (
-    <div className={cn('ant-card', className)} {...rest}>
+    <section className={cn(SECTION_CARD_CLASS, 'flex flex-col overflow-hidden', className)} {...rest}>
       {(title || extra) && (
-        <div className="ant-card-head border-b border-border">
-          <div className="ant-card-head-wrapper flex min-h-[46px] items-center justify-between gap-[12px] px-[16px]">
-            <div className="ant-card-head-title min-w-0">{title}</div>
-            {extra ? <div className="ant-card-extra min-w-0">{extra}</div> : null}
-          </div>
+        <div className="flex min-h-[54px] items-center justify-between gap-[12px] border-b border-[#eceef1] px-[20px] py-[10px] dark:border-white/10">
+          <div className={cn('min-w-0', SECTION_CARD_TITLE_CLASS)}>{title}</div>
+          {extra ? <div className="shrink-0">{extra}</div> : null}
         </div>
       )}
-      <div className={cn('ant-card-body', bodyClassName)}>{children}</div>
-    </div>
+      <div className={cn('p-[20px]', bodyClassName)}>
+        {loading ? (
+          <div className="py-[24px] text-center text-[13px] text-[#858b9c] dark:text-muted-foreground">加载中…</div>
+        ) : (
+          children
+        )}
+      </div>
+    </section>
   );
 }
 
-function LabeledField({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="flex flex-col gap-[6px]">
-      <span className={EDITOR_FIELD_LABEL_CLASS}>{label}</span>
+    <div className="flex flex-col gap-[6px]">
+      <span className={FIELD_LABEL_CLASS}>{label}</span>
       {children}
-    </label>
+    </div>
   );
 }
 
@@ -1091,7 +1164,7 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
   const pageTitle = isNew ? '新建空白技能' : '编辑技能';
   const pageDescription = isOverallAgent
     ? (isNew
-      ? '填写技能基本信息并编辑 SKILL.md，保存后可在右侧运行测试。'
+      ? '填写技能定义并编辑 SKILL.md，保存后可在右侧运行测试。'
       : '维护技能广场中的技能定义、文件包和运行测试。')
     : (isNew
       ? '为当前数字员工创建技能，填写基本信息并编辑技能文件。'
@@ -1801,8 +1874,8 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
   const importMenu = (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <UIButton variant="outline" className={EDITOR_ACTION_OUTLINE_CLASS}>
-          <UploadOutlined />
+        <UIButton variant="outline" className={RETURN_BUTTON_CLASS}>
+          <UploadOutlined className="size-[14px]!" />
           导入
           <IconChevronDown className="size-[12px]" />
         </UIButton>
@@ -1842,76 +1915,110 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
         description={pageDescription}
       />
 
-      <div className="mt-[20px] mb-[16px] flex flex-wrap items-center justify-end gap-[8px]">
-        <UIButton variant="outline" className={EDITOR_ACTION_OUTLINE_CLASS} onClick={() => navigate('/enterprise/general-skills')}>
-          <ArrowLeftOutlined />
-          返回列表
+      <div className="mt-[20px] mb-[16px] flex flex-wrap justify-end gap-[16px]">
+        <UIButton variant="outline" className={RETURN_BUTTON_CLASS} onClick={() => navigate('/enterprise/general-skills')}>
+          <IconArrowRight className="size-3.5 rotate-180" />
+          返回技能
         </UIButton>
         {!isNew && (
-          <UIButton variant="outline" className={EDITOR_ACTION_OUTLINE_CLASS} onClick={() => navigate('/enterprise/general-skills/new')}>
+          <UIButton variant="outline" className={RETURN_BUTTON_CLASS} onClick={() => navigate('/enterprise/general-skills/new')}>
             <PlusOutlined />
             新建技能
           </UIButton>
         )}
         {importMenu}
-        <UIButton disabled={saving} className={EDITOR_ACTION_PRIMARY_CLASS} onClick={() => void importSkill()}>
-          <CloudOutlined />
-          保存并发布
+        <UIButton disabled={saving} className={PRIMARY_BUTTON_CLASS} onClick={() => void importSkill()}>
+          保存
         </UIButton>
       </div>
 
-      <div className="grid-2">
-        <div className="flex flex-col gap-[16px]">
-          <section className={cn(EDITOR_CARD_CLASS, 'p-[20px]')}>
-            <h3 className={EDITOR_CARD_TITLE_CLASS}>基本信息</h3>
+      <div className="grid grid-cols-1 gap-[20px] xl:grid-cols-2 xl:grid-rows-[auto_minmax(0,1fr)] xl:items-stretch">
+          <SectionCard title="基本信息">
             <div className="grid grid-cols-1 gap-[16px] md:grid-cols-2">
-              <LabeledField label="技能名称">
+              <Field label="技能名称">
                 <Input
                   value={skillName}
                   onChange={(event) => setSkillName(event.target.value)}
                   placeholder="例如 天气查询、代码审查"
                 />
-              </LabeledField>
-              <LabeledField label="Slug">
+              </Field>
+              <Field label="Slug">
                 <Input
                   value={skillSlug}
                   onChange={(event) => setSkillSlug(event.target.value)}
                   placeholder="用于路由和接口路径，例如 weather-zh"
                 />
-              </LabeledField>
-              <LabeledField label="描述">
+              </Field>
+              <Field label="描述">
                 <Input
                   value={skillDescription}
                   onChange={(event) => setSkillDescription(event.target.value)}
                   placeholder="用于员工选择技能时的说明"
                 />
-              </LabeledField>
-              <LabeledField label="主页链接">
+              </Field>
+              <Field label="主页链接">
                 <Input
                   value={skillHomepage}
                   onChange={(event) => setSkillHomepage(event.target.value)}
                   placeholder="可选，参考文档或项目主页"
                 />
-              </LabeledField>
+              </Field>
             </div>
-          </section>
+          </SectionCard>
 
-          <EditorCard
-            className={`editor-card general-skill-editor ${dragActive ? 'drag-active' : ''}`}
+          <SectionCard
+            className="xl:col-start-2 xl:row-start-1"
+            title="运行测试"
+            extra={(
+              <UIButton disabled={loading || !selectedSkill?.slug} className={PRIMARY_BUTTON_CLASS} onClick={() => void runSkill()}>
+                <ExperimentOutlined />
+                运行
+              </UIButton>
+            )}
+          >
+            <div className="flex flex-col gap-[12px]">
+              <Field label="选择技能">
+                <UISelect value={selectedSkill?.slug} onValueChange={setSelectedSlug}>
+                  <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, 'w-full')}>
+                    <SelectValue placeholder={isNew && !selectedSkill ? '保存后可选择并测试' : '选择技能'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {rows.map((row) => (
+                      <SelectItem key={row.slug} value={row.slug}>{`${row.name} / ${row.slug}`}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </UISelect>
+              </Field>
+              <Field label="测试问题">
+                <Input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="输入要测试的问题"
+                />
+              </Field>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            className={cn(
+              'flex h-full min-h-0 flex-col xl:col-start-1 xl:row-start-2',
+              dragActive && SKILL_EDITOR_DRAG_ACTIVE_CLASS,
+            )}
+            bodyClassName="relative flex min-h-0 flex-1 flex-col p-0"
             onDragEnter={handleDragEnter}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             title={(
               <span className="flex items-center gap-[8px]">
-                <FileTextOutlined />
+                <IconProfileFile className="size-[14px] shrink-0 text-[#757f9c]" />
                 <span>技能文件</span>
               </span>
             )}
           >
             <input
               ref={fileInputRef}
-              className="visually-hidden-file-input"
+              className={HIDDEN_FILE_INPUT_CLASS}
               type="file"
               accept=".zip,.md,.markdown,.txt"
               onChange={handleFileInputChange}
@@ -1921,7 +2028,7 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
             />
             <input
               ref={folderInputRef}
-              className="visually-hidden-file-input"
+              className={HIDDEN_FILE_INPUT_CLASS}
               type="file"
               multiple
               {...FOLDER_INPUT_PROPS}
@@ -1931,30 +2038,30 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
               tabIndex={-1}
             />
             {dragActive && (
-              <div className="general-skill-drop-hint">
+              <div className={SKILL_DROP_HINT_CLASS}>
                 <UploadOutlined />
                 <span>释放以导入 SKILL.md、zip 技能包或完整技能文件夹</span>
               </div>
             )}
-            <div className="general-skill-file-editor">
-              <aside className="general-skill-file-tree">
-                <div className="general-skill-file-tree-title">
-                  <FolderOpenOutlined />
+            <div className={SKILL_FILE_EDITOR_CLASS}>
+              <aside className={SKILL_FILE_TREE_CLASS}>
+                <div className={SKILL_FILE_TREE_HEADER_CLASS}>
+                  <IconFolder className="size-[14px] shrink-0 text-[#757f9c]" />
                   <span>文件</span>
                 </div>
-                <div className="general-skill-file-tree-list">
+                <div className={SKILL_FILE_TREE_LIST_CLASS}>
                   {skillFiles.map((file) => (
                     <ContextMenu.Root key={file.path}>
                       <ContextMenu.Trigger asChild>
                         <button
                           type="button"
-                          className={`general-skill-file-node ${file.path === selectedFile?.path ? 'active' : ''}`}
+                          className={skillFileNodeClass(file.path === selectedFile?.path)}
                           onClick={() => setSelectedFilePath(file.path)}
                           onContextMenu={() => setSelectedFilePath(file.path)}
                           title={file.path}
                         >
-                          <FileTextOutlined />
-                          <span>{file.path}</span>
+                          <IconProfileFile className="size-[14px] shrink-0" />
+                          <span className="min-w-0 truncate">{file.path}</span>
                         </button>
                       </ContextMenu.Trigger>
                       <ContextMenu.Portal>
@@ -1972,21 +2079,30 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
                     </ContextMenu.Root>
                   ))}
                 </div>
-                <div className="general-skill-file-actions">
-                  <UIButton variant="outline" size="sm" onClick={addSkillFile}>新建文件</UIButton>
-                  <UIButton variant="outline" size="sm" onClick={deleteSelectedFile}>
-                    <DeleteOutlined />
+                <div className={SKILL_FILE_TREE_ACTIONS_CLASS}>
+                  <UIButton variant="outline" onClick={addSkillFile} className={RETURN_BUTTON_CLASS}>
+                    <IconAdd className="size-[14px]" />
+                    新建文件
+                  </UIButton>
+                  <UIButton
+                    variant="outline"
+                    onClick={deleteSelectedFile}
+                    className={DELETE_BUTTON_CLASS}
+                  >
+                    <IconTrash className="size-[14px]" />
+                    删除
                   </UIButton>
                 </div>
               </aside>
-              <section className="general-skill-file-pane">
-                <div className="general-skill-file-tab">
-                  <FileTextOutlined />
-                  <span>{selectedFile?.path || '未选择文件'}</span>
+              <section className={SKILL_FILE_PANE_CLASS}>
+                <div className={SKILL_FILE_TAB_CLASS}>
+                  <IconProfileFile className="size-[14px] shrink-0 text-[#757f9c]" />
+                  <span className="min-w-0 truncate text-[#18181a] dark:text-white">{selectedFile?.path || '未选择文件'}</span>
                 </div>
-                <div className="general-skill-code-editor" data-language={selectedFileLanguage}>
-                  <pre className="general-skill-code-highlight" aria-hidden="true">
+                <div className={SKILL_CODE_EDITOR_CLASS} data-language={selectedFileLanguage}>
+                  <pre className={SKILL_CODE_HIGHLIGHT_CLASS} aria-hidden="true">
                     <code
+                      className={SKILL_CODE_HIGHLIGHT_CODE_CLASS}
                       style={{
                         transform: `translate(${-editorScroll.left}px, ${-editorScroll.top}px)`,
                       }}
@@ -1995,7 +2111,7 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
                     </code>
                   </pre>
                   <textarea
-                    className="general-skill-code-input"
+                    className={SKILL_CODE_INPUT_CLASS}
                     value={selectedFile?.content || ''}
                     onChange={(event) => updateSelectedFile(event.target.value)}
                     onScroll={(event) => setEditorScroll({
@@ -2007,48 +2123,14 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
                 </div>
               </section>
             </div>
-          </EditorCard>
-        </div>
+          </SectionCard>
 
-        <div className="flex flex-col gap-[16px]">
-          <EditorCard
-            className="editor-card general-skill-run-card"
-            bodyClassName="p-[18px]"
-            title="运行测试"
-            extra={(
-              <UIButton disabled={loading || !selectedSkill?.slug} className={EDITOR_ACTION_PRIMARY_CLASS} onClick={() => void runSkill()}>
-                <ExperimentOutlined />
-                运行
-              </UIButton>
-            )}
-          >
-            <div className="flex flex-col gap-[12px]">
-              <LabeledField label="选择技能">
-                <UISelect value={selectedSkill?.slug} onValueChange={setSelectedSlug}>
-                  <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, 'w-full')}>
-                    <SelectValue placeholder={isNew && !selectedSkill ? '保存后可选择并测试' : '选择技能'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {rows.map((row) => (
-                      <SelectItem key={row.slug} value={row.slug}>{`${row.name} / ${row.slug}`}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </UISelect>
-              </LabeledField>
-              <LabeledField label="测试问题">
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="输入要测试的问题"
-                />
-              </LabeledField>
-            </div>
-          </EditorCard>
-          <EditorCard
-            className="editor-card general-result-card"
+          <SectionCard
+            className="flex h-full min-h-0 flex-col xl:col-start-2 xl:row-start-2"
+            bodyClassName="flex min-h-0 flex-1 flex-col overflow-auto p-[18px]"
             title={(
               <span className="flex items-center gap-[8px]">
-                <PlayCircleOutlined />
+                <IconPlay className="size-[14px] shrink-0 text-[#757f9c]" />
                 <span>运行结果</span>
                 {activeResult && (
                   isLiveRunning
@@ -2061,7 +2143,7 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
             )}
           >
             {activeResult ? (
-              <div className="general-result-layout">
+              <div className={SKILL_RESULT_LAYOUT_CLASS}>
                 {(() => {
                   const traceItems = activeResult.execution_trace || [];
                   const latestCodeIndex = traceItems.reduce(
@@ -2070,16 +2152,16 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
                   );
                   return (
                     <>
-                <section className="general-reply-panel">
-                  <div className="general-section-label">最终回复</div>
-                  <p className="result-reply">
+                <section className={SKILL_REPLY_PANEL_CLASS}>
+                  <div className={SKILL_SECTION_LABEL_CLASS}>最终回复</div>
+                  <p className={SKILL_REPLY_TEXT_CLASS}>
                     {activeResult.reply || (loading ? '正在运行技能...' : '暂无回复')}
                   </p>
                 </section>
 
                 <section>
-                  <div className="general-section-label">执行流程</div>
-                  <div className="general-trace-list">
+                  <div className={SKILL_SECTION_LABEL_CLASS}>执行流程</div>
+                  <div className={SKILL_TRACE_LIST_CLASS}>
                     {traceItems.map((item, index) => {
                       const phase = typeof item.phase === 'string' ? item.phase : '';
                       const detail = traceDetail(item);
@@ -2088,13 +2170,14 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
                         ? `第 ${item.attempt} 次 Python runner`
                         : 'Python runner';
                       return (
-                        <div className="general-trace-item" key={`${phase || 'phase'}-${index}`}>
-                          <div className="general-trace-dot" />
-                          <div>
-                            <div className="general-trace-title">{PHASE_LABELS[phase] || String(item.message || phase || '执行')}</div>
-                            <div className="general-trace-message">{String(item.message || '')}</div>
+                        <div className={SKILL_TRACE_ITEM_CLASS} key={`${phase || 'phase'}-${index}`}>
+                          <div className={SKILL_TRACE_DOT_CLASS} />
+                          <div className={SKILL_TRACE_ITEM_BODY_CLASS}>
+                            <div className={SKILL_TRACE_TITLE_CLASS}>{PHASE_LABELS[phase] || String(item.message || phase || '执行')}</div>
+                            <div className={SKILL_TRACE_MESSAGE_CLASS}>{String(item.message || '')}</div>
                             {detail && (
                               <RunCodePanel
+                                className="mt-2"
                                 title={phase === 'code_finished' ? '查看执行结果' : phase === 'stdout_chunk' ? '查看运行输出' : '查看详情'}
                                 code={detail}
                                 language={codeLanguage(detail)}
@@ -2102,9 +2185,9 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
                               />
                             )}
                             {code && (
-                              <details className="general-trace-code" open={index === latestCodeIndex}>
-                                <summary>{codeTitle}</summary>
-                                <CodeBlock className="general-code-block" code={code} language="python" />
+                              <details className={cn(SKILL_TRACE_CODE_DETAILS_CLASS, 'mt-[10px]')} open={index === latestCodeIndex}>
+                                <summary className={SKILL_TRACE_CODE_SUMMARY_CLASS}>{codeTitle}</summary>
+                                <CodeBlock className={SKILL_CODE_BLOCK_CLASS} code={code} language="python" />
                               </details>
                             )}
                           </div>
@@ -2115,8 +2198,8 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
                 </section>
 
                 <section>
-                  <div className="general-section-label">运行输出</div>
-                  <div className="general-output-stack">
+                  <div className={SKILL_SECTION_LABEL_CLASS}>运行输出</div>
+                  <div className={SKILL_OUTPUT_STACK_CLASS}>
                     <RunCodePanel
                       title="结构化结果"
                       code={formatJson(activeResult.structured_result) || '无结构化结果'}
@@ -2140,12 +2223,11 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
                 })()}
               </div>
             ) : (
-              <div className="flex flex-col items-center gap-[8px] py-[40px] text-center text-[13px] text-muted-foreground">
+              <div className="flex min-h-[560px] flex-1 flex-col items-center justify-center gap-[8px] text-center text-[13px] text-muted-foreground xl:min-h-0">
                 运行后将在这里显示回复、执行流程、代码和输出
               </div>
             )}
-          </EditorCard>
-        </div>
+          </SectionCard>
       </div>
       <ClawHubDialog
         open={clawhubModalOpen}
