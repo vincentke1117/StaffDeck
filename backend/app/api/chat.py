@@ -49,6 +49,7 @@ from app.session.session_schema import (
 )
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+CHAT_ADMIN_USERNAMES = {"admin", "admin_demo"}
 STREAM_REPLY_CHUNK_SIZE = 96
 MAX_CHAT_ATTACHMENT_BYTES = 12 * 1024 * 1024
 MAX_CHAT_ATTACHMENTS = 8
@@ -917,10 +918,7 @@ def list_chat_messages(
     db: Session = Depends(get_session),
 ) -> list[MessageRead]:
     _ensure_request_tenant(tenant_id, current_user)
-    ensure_tenant(db, tenant_id)
-    chat_session = db.get(ChatSession, session_id)
-    if not chat_session or chat_session.tenant_id != tenant_id or chat_session.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="Session not found")
+    chat_session = _get_readable_chat_session(db, tenant_id, current_user, session_id)
     _cleanup_stale_completed_sessions(db, tenant_id, [chat_session])
     rows = db.exec(
         select(Message)
@@ -949,7 +947,7 @@ def list_chat_session_events(
     db: Session = Depends(get_session),
 ) -> list[dict]:
     _ensure_request_tenant(tenant_id, current_user)
-    _get_user_chat_session(db, tenant_id, current_user.id, session_id)
+    _get_readable_chat_session(db, tenant_id, current_user, session_id)
     rows = db.exec(
         select(AgentEvent)
         .where(
@@ -974,7 +972,7 @@ def list_human_handoffs(
     stmt = select(HumanHandoffRequest).where(HumanHandoffRequest.tenant_id == tenant_id)
     if status != "all":
         stmt = stmt.where(HumanHandoffRequest.status == status)
-    if current_user.username not in {"admin", "admin_demo"}:
+    if current_user.username not in CHAT_ADMIN_USERNAMES:
         if status == "pending":
             stmt = stmt.where(
                 or_(
@@ -1004,7 +1002,7 @@ def reply_human_handoff(
     row = db.get(HumanHandoffRequest, handoff_id)
     if not row or row.tenant_id != request.tenant_id:
         raise HTTPException(status_code=404, detail="Handoff request not found")
-    if current_user.username not in {"admin", "admin_demo"} and row.assignee_user_id not in {None, current_user.id}:
+    if current_user.username not in CHAT_ADMIN_USERNAMES and row.assignee_user_id not in {None, current_user.id}:
         raise HTTPException(status_code=403, detail="Handoff request not assigned to current user")
     reply = request.reply.strip()
     if not reply:
@@ -1153,7 +1151,7 @@ def list_chat_session_trace(
     db: Session = Depends(get_session),
 ) -> list[dict]:
     _ensure_request_tenant(tenant_id, current_user)
-    _get_user_chat_session(db, tenant_id, current_user.id, session_id)
+    _get_readable_chat_session(db, tenant_id, current_user, session_id)
     messages = db.exec(
         select(Message)
         .where(Message.tenant_id == tenant_id, Message.session_id == session_id)
@@ -1175,6 +1173,34 @@ def _get_user_chat_session(db: Session, tenant_id: str, user_id: str, session_id
     if not row or row.tenant_id != tenant_id or row.user_id != user_id:
         raise HTTPException(status_code=404, detail="Session not found")
     return row
+
+
+def _get_readable_chat_session(db: Session, tenant_id: str, current_user: User, session_id: str) -> ChatSession:
+    ensure_tenant(db, tenant_id)
+    row = db.get(ChatSession, session_id)
+    if not row or row.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if row.user_id == current_user.id:
+        return row
+    if _user_can_read_handoff_session(db, tenant_id, current_user, session_id):
+        return row
+    raise HTTPException(status_code=404, detail="Session not found")
+
+
+def _user_can_read_handoff_session(db: Session, tenant_id: str, current_user: User, session_id: str) -> bool:
+    statement = select(HumanHandoffRequest).where(
+        HumanHandoffRequest.tenant_id == tenant_id,
+        HumanHandoffRequest.session_id == session_id,
+    )
+    if current_user.username not in CHAT_ADMIN_USERNAMES:
+        statement = statement.where(
+            or_(
+                HumanHandoffRequest.assignee_user_id == current_user.id,
+                HumanHandoffRequest.assignee_user_id.is_(None),
+                HumanHandoffRequest.requester_user_id == current_user.id,
+            )
+        )
+    return db.exec(statement).first() is not None
 
 
 def _ensure_chat_agent_available(

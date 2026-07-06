@@ -426,6 +426,41 @@ def test_handoff_list_filters_by_status_and_user_then_reply_restores_session(mon
         assert resumed == ["handoff_assigned"]
 
 
+def test_handoff_assignee_can_read_original_session_without_owner_permissions():
+    engine = _test_engine()
+    with Session(engine) as db:
+        admin, user, other = _seed_handoff_users(db)
+        stranger = User(id="stranger_user", tenant_id="tenant_demo", username="stranger", password_hash="x")
+        db.add(stranger)
+        session = ChatSession(
+            id="session_handoff_read",
+            tenant_id="tenant_demo",
+            user_id=user.id,
+            agent_id="agent_demo",
+            status="handoff",
+        )
+        db.add(session)
+        db.add(
+            HumanHandoffRequest(
+                id="handoff_read",
+                tenant_id="tenant_demo",
+                session_id=session.id,
+                requester_user_id=user.id,
+                assignee_user_id=other.id,
+                pending_question="请人工确认",
+                status="pending",
+            )
+        )
+        db.commit()
+
+        assert chat_api._get_readable_chat_session(db, "tenant_demo", user, session.id).id == session.id
+        assert chat_api._get_readable_chat_session(db, "tenant_demo", other, session.id).id == session.id
+        assert chat_api._get_readable_chat_session(db, "tenant_demo", admin, session.id).id == session.id
+        with pytest.raises(HTTPException) as exc:
+            chat_api._get_readable_chat_session(db, "tenant_demo", stranger, session.id)
+        assert exc.value.status_code == 404
+
+
 def test_reply_human_handoff_restores_session_and_schedules_resume(monkeypatch):
     handoff = HumanHandoffRequest(
         id="handoff_reply",
@@ -605,6 +640,58 @@ def test_handoff_resume_worker_continues_original_session_once(monkeypatch):
         events = db.exec(select(AgentEvent).where(AgentEvent.event_type == "human_handoff_resume_started")).all()
         assert len(events) == 1
         assert events[0].payload_json["handoff_id"] == "handoff_worker"
+
+
+def test_handoff_resume_worker_persists_failed_resume(monkeypatch):
+    engine = _test_engine()
+
+    class FailingAgentLoop:
+        def __init__(self, db: Session) -> None:
+            self.db = db
+
+        def handle_turn(self, request: ChatTurnRequest) -> None:
+            raise RuntimeError(f"resume failed for {request.session_id}")
+
+    monkeypatch.setattr(chat_api, "engine", engine)
+    monkeypatch.setattr(chat_api, "AgentLoop", FailingAgentLoop)
+    with Session(engine) as db:
+        _admin, user, _other = _seed_handoff_users(db)
+        db.add(
+            ChatSession(
+                id="session_handoff",
+                tenant_id="tenant_demo",
+                user_id=user.id,
+                agent_id="agent_demo",
+                status="active",
+            )
+        )
+        db.add(
+            HumanHandoffRequest(
+                id="handoff_worker_failed",
+                tenant_id="tenant_demo",
+                session_id="session_handoff",
+                agent_id="agent_demo",
+                requester_user_id=user.id,
+                assignee_user_id="admin_user",
+                pending_question="请人工确认",
+                status="answered",
+                human_reply="人工答复：继续执行后续流程",
+            )
+        )
+        db.commit()
+
+    chat_api._resume_human_handoff_worker("handoff_worker_failed")
+
+    with Session(engine) as db:
+        handoff = db.get(HumanHandoffRequest, "handoff_worker_failed")
+        assert handoff is not None
+        assert handoff.status == "failed"
+        assert handoff.metadata_json["resume_started_at"]
+        assert handoff.metadata_json["resume_failed_at"]
+        assert "resume failed for session_handoff" in handoff.metadata_json["resume_error"]
+        events = db.exec(select(AgentEvent).where(AgentEvent.event_type == "human_handoff_resume_failed")).all()
+        assert len(events) == 1
+        assert events[0].payload_json["handoff_id"] == "handoff_worker_failed"
 
 
 def test_router_generated_message_slots_are_not_persisted():
