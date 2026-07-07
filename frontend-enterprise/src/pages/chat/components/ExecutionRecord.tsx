@@ -16,6 +16,7 @@ import {
   CHAT_TRACE_CHEVRON_EXPANDED_CLASS,
   CHAT_TRACE_CODE_SUMMARY_CLASS,
   CHAT_TRACE_DETAILS_CLASS,
+  CHAT_TRACE_FLOW_TEXT_CLASS,
   CHAT_TRACE_ICON_CLASS,
   CHAT_TRACE_LINE_CLASS,
   CHAT_TRACE_LINE_CONTENT_CLASS,
@@ -76,7 +77,7 @@ export default function ExecutionRecord({
         onClick={() => onToggle(traceTurnId, expanded)}
       >
         <CotTraceIcon name={traceSummaryIconName(summary)} />
-        <span>{summary.text}</span>
+        <span className={cn(summary.state === 'running' && CHAT_TRACE_FLOW_TEXT_CLASS)}>{summary.text}</span>
         {details.length > 0 && (
           <StaffdeckIcon
             name="arrow"
@@ -94,6 +95,7 @@ export default function ExecutionRecord({
                 <span
                   className={cn(
                     CHAT_TRACE_LINE_TEXT_CLASS,
+                    line.state === 'running' && CHAT_TRACE_FLOW_TEXT_CLASS,
                     line.state === 'failed' && CHAT_TRACE_LINE_TEXT_FAILED_CLASS,
                   )}
                 >

@@ -109,6 +109,7 @@ export const CHAT_TRACE_DETAILS_CLASS =
 export const CHAT_TRACE_LINE_CLASS = 'grid grid-cols-[18px_minmax(0,1fr)] items-start gap-[8px]';
 export const CHAT_TRACE_LINE_CONTENT_CLASS = 'grid min-w-0 gap-[4px]';
 export const CHAT_TRACE_LINE_TEXT_CLASS = 'text-[13px] leading-[1.5] text-[#464c5e] wrap-anywhere';
+export const CHAT_TRACE_FLOW_TEXT_CLASS = 'sd1-trace-flow-text';
 export const CHAT_TRACE_LINE_TEXT_FAILED_CLASS = 'text-[#d20b0b]';
 export const CHAT_TRACE_LINE_DETAIL_CLASS = 'text-[12px] leading-[1.5] text-[#858b9c] wrap-anywhere';
 export const CHAT_TRACE_CODE_SUMMARY_CLASS =

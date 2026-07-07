@@ -58,6 +58,7 @@
   --code-boolean: #0000ff;
   --thinking-base: #8a918d;
   --thinking-focus: #2f3734;
+  --thinking-flow-duration: 5s;
   --card: #ffffff;
   --card-foreground: #20201d;
   --popover: #ffffff;
@@ -198,9 +199,39 @@ select,
   animation: sd1-spin 1s linear infinite;
 }
 
+.sd1-trace-flow-text {
+  color: transparent;
+  background-color: var(--thinking-base);
+  background-image: linear-gradient(
+    90deg,
+    var(--thinking-base) 0%,
+    var(--thinking-base) 42%,
+    var(--thinking-focus) 50%,
+    var(--thinking-base) 58%,
+    var(--thinking-base) 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 260% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: trace-text-flow var(--thinking-flow-duration) cubic-bezier(0.45, 0, 0.15, 1) infinite;
+}
+
 @keyframes sd1-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes trace-text-flow {
+  0%,
+  7% {
+    background-position: 125% 0;
+  }
+  55%,
+  100% {
+    background-position: -45% 0;
   }
 }
 
