@@ -235,12 +235,6 @@ select,
   box-shadow: var(--shadow-soft);
 }
 
-.agent-create-mode {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
 .agent-definition-note {
   border: 1px solid var(--border);
   border-radius: 10px;

@@ -33,6 +33,7 @@ import AgentsPage from "./pages/AgentsPage";
 import ChatPage from "./pages/chat/ChatPage";
 import ChatGalleryPage from "./pages/chat/ChatGalleryPage";
 import DashboardPage from "./pages/DashboardPage";
+import EmptyEmployeeState from "./components/EmptyEmployeeState";
 import DistillPage from "./pages/DistillPage";
 import FeedbackPage from "./pages/FeedbackPage";
 import GeneralSkillsPage, {
@@ -110,6 +111,7 @@ function Shell({
   const navigate = useNavigate();
   const location = useLocation();
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState(
     () => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || "",
   );
@@ -206,6 +208,16 @@ function Shell({
       );
   }, []);
 
+  useEffect(() => {
+    const onCreateAgent = () => openCreateAgentModal();
+    window.addEventListener("ultrarag-enterprise-agent-create", onCreateAgent);
+    return () =>
+      window.removeEventListener(
+        "ultrarag-enterprise-agent-create",
+        onCreateAgent,
+      );
+  }, []);
+
   function loadAgents() {
     return api
       .get<AgentProfileRead[]>(`/api/enterprise/agents?tenant_id=${TENANT_ID}`)
@@ -238,7 +250,8 @@ function Shell({
           return next;
         });
       })
-      .catch(() => setAgents([]));
+      .catch(() => setAgents([]))
+      .finally(() => setAgentsLoaded(true));
   }
 
   function canUseAgentScope(agent: AgentProfileRead): boolean {
@@ -266,6 +279,23 @@ function Shell({
   const selectedAgent = agents.find((item) => item.id === selectedAgentId);
   const sidebarAgent = selectedAgent;
   const scopeAgents = agents.filter(canUseAgentScope);
+  // Routes that operate on a specific employee; show the empty guide when none exist.
+  const EMPLOYEE_SCOPED_PREFIXES = [
+    "/enterprise/dashboard",
+    "/enterprise/scheduled-tasks",
+    "/enterprise/memories",
+    "/enterprise/feedback",
+    "/enterprise/knowledge",
+    "/enterprise/general-skills",
+    "/enterprise/skills",
+    "/enterprise/tools",
+  ];
+  const hasEmployees = agents.some((item) => !item.is_overall);
+  const isEmployeeScopedRoute = EMPLOYEE_SCOPED_PREFIXES.some((prefix) =>
+    location.pathname.startsWith(prefix),
+  );
+  const showEmployeeEmptyState =
+    agentsLoaded && !hasEmployees && isEmployeeScopedRoute;
   const sourceAgents = isAdmin
     ? scopeAgents
     : scopeAgents.filter((item) => !item.is_overall);
@@ -394,7 +424,14 @@ function Shell({
               onLogout={onLogout}
             />
           </div>
-          {!isDistillRoute && (
+          {!isDistillRoute && showEmployeeEmptyState && (
+            <EmptyEmployeeState
+              isAdmin={isAdmin}
+              onCreate={openCreateAgentModal}
+              onBrowsePlatform={() => navigate(EnterpriseRoute.Platform)}
+            />
+          )}
+          {!isDistillRoute && !showEmployeeEmptyState && (
             <Routes>
               <Route
                 path="/enterprise"
@@ -590,7 +627,7 @@ function Shell({
           <div className="agent-editor-form px-[24px]">
             <label>
               创建方式
-              <div className="agent-create-mode inline-flex rounded-[10px] border border-border p-[2px]">
+              <div className="inline-flex w-fit gap-[4px] rounded-[10px] border border-border p-[2px]">
                 {[
                   { label: "从广场复制", value: "copy" as const },
                   { label: "从空白开始", value: "blank" as const },
@@ -631,6 +668,7 @@ function Shell({
                 placeholder="例如 研发工程师、财务助理"
               />
             </label>
+            <div className="grid content-start gap-[6px]">
             {agentForm.sourceMode === "copy" && (
               <label>
                 复制来源
@@ -673,6 +711,7 @@ function Shell({
                 从空白开始创建，不继承任何已有配置。
               </div>
             )}
+            </div>
             <label>
               数字员工姓名
               <Input
