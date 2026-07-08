@@ -88,12 +88,22 @@ export default function PlatformColumn({
           <div className="h-px w-full bg-[#e3e7f1]" />
         </div>
 
-        <div className="-mr-[12px] flex min-h-0 w-[calc(100%+12px)] flex-1 flex-col gap-[16px] overflow-y-auto pr-[12px]">
+        <div className="mr-[-12px] flex min-h-0 w-[calc(100%+12px)] flex-1 flex-col gap-[16px] overflow-y-auto pr-[12px]">
           {loading ? (
             <PlatformColumnSkeleton />
           ) : isEmpty ? (
-            <div className="flex h-[112px] w-full items-center justify-center rounded-[14px] border-[0.5px] border-[#f6f6f6] bg-white text-center text-[10px] text-[#757f9c] backdrop-blur-[1.835px]">
-              {emptyText}
+            <div className="flex min-h-[180px] w-full flex-1 items-center justify-center rounded-[18px] border border-dashed border-[#e4e9f2] bg-[#fbfcfe] px-[18px] py-[28px] text-center">
+              <div className="flex max-w-[180px] flex-col items-center">
+                <span className="grid size-[34px] place-items-center rounded-[12px] bg-white text-[#98a2b3] shadow-[0_1px_8px_rgba(70,76,94,0.06)] ring-1 ring-[#edf1f6]">
+                  <IconChevronDown className="size-[16px] rotate-90" />
+                </span>
+                <p className="mt-[12px] text-[13px] font-medium leading-[19px] text-[#7f879a]">
+                  {emptyText}
+                </p>
+                <p className="mt-[4px] text-[10px] leading-[16px] text-[#a7adbb]">
+                  发布内容后会在这里展示
+                </p>
+              </div>
             </div>
           ) : (
             children

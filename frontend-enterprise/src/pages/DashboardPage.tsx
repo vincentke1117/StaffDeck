@@ -302,6 +302,15 @@ export default function DashboardPage({
     132,
   );
   const goToLogs = () => navigate(`/enterprise/feedback?agent_id=${encodeURIComponent(selectedAgent.id)}`);
+  const capabilityCardClass = 'group relative flex h-[230px] w-full min-w-0 appearance-none flex-col items-stretch gap-[6px] overflow-hidden rounded-[20px] border px-[24px] py-[20px] text-left transition-[transform,box-shadow] duration-[180ms] ease-[ease] hover:-translate-y-[2px]';
+  const capabilityLightCardClass = 'border-[#f6f6f6] bg-white shadow-[0_4px_10px_rgba(0,0,0,0.05)] hover:shadow-[0_12px_26px_rgba(0,0,0,0.08)]';
+  const capabilityDarkCardClass = 'border-[#29282d] bg-[#29282d] text-white shadow-none hover:shadow-[0_12px_26px_rgba(0,0,0,0.28)]';
+  const capabilityArrowClass = 'pointer-events-none absolute top-[13px] right-[8px] size-[20px] text-[#858b9c] group-data-[tone=dark]:text-[#c7ccd6]';
+  const capabilityGlyphClass = 'size-[14px] shrink-0 text-[#858b9c] group-data-[tone=dark]:text-white';
+  const capabilityNameClass = 'min-w-0 truncate text-[14px] font-normal text-[#858b9c] group-data-[tone=dark]:text-white';
+  const capabilityBarClass = 'block h-[4px] w-full overflow-hidden rounded-[90px] bg-[#e9e9e9] group-data-[tone=dark]:bg-[#6a6a6a]';
+  const capabilityBarFillClass = 'block h-full w-[20px] rounded-[90px] bg-[#282931] group-data-[tone=dark]:bg-[#e9e9e9]';
+  const capabilityDescClass = 'line-clamp-5 min-w-0 overflow-hidden text-[10px] leading-[16px] font-normal text-[#757f9c] [overflow-wrap:anywhere] group-data-[tone=dark]:line-clamp-2 group-data-[tone=dark]:text-[#f6f6f6]';
 
   const capabilityCards = [
     {
@@ -310,7 +319,7 @@ export default function DashboardPage({
       tone: 'knowledge',
       count: activeKnowledge.length,
       body: activeKnowledge.slice(0, 3).map((item) => staffdeckDisplayText(item.name)).join(' / ') || '暂无知识库',
-      icon: <IconCapFolder className="employee-cap-glyph" />,
+      icon: <IconCapFolder className={capabilityGlyphClass} />,
       dark: false,
     },
     {
@@ -319,7 +328,7 @@ export default function DashboardPage({
       tone: 'skill',
       count: activeGeneralSkills.length,
       body: activeGeneralSkills.slice(0, 3).map((item) => staffdeckDisplayText(item.name)).join(' / ') || '暂无启用技能',
-      icon: <IconCapMagicWand className="employee-cap-glyph" />,
+      icon: <IconCapMagicWand className={capabilityGlyphClass} />,
       dark: false,
     },
     {
@@ -328,7 +337,7 @@ export default function DashboardPage({
       tone: 'sop',
       count: activeSkills.length,
       body: activeSkills.slice(0, 3).map((item) => staffdeckDisplayText(item.name)).join(' / ') || '暂无启用 SOP',
-      icon: <IconCapClipboard className="employee-cap-glyph" />,
+      icon: <IconCapClipboard className={capabilityGlyphClass} />,
       dark: false,
     },
     {
@@ -337,7 +346,7 @@ export default function DashboardPage({
       tone: 'tools',
       count: activeTools.length,
       body: activeTools.slice(0, 3).map((item) => staffdeckDisplayText(item.display_name || item.name)).join(' / ') || '暂无启用工具',
-      icon: <IconCapBriefcase className="employee-cap-glyph" />,
+      icon: <IconCapBriefcase className={capabilityGlyphClass} />,
       dark: true,
       illustration: capabilityTools,
     },
@@ -347,7 +356,7 @@ export default function DashboardPage({
       tone: 'tasks',
       count: activeScheduledTasks.length,
       body: activeScheduledTasks.slice(0, 2).map((item) => staffdeckDisplayText(item.title)).join(' / ') || '暂无启用定时任务',
-      icon: <IconProfileAlarm className="employee-cap-glyph" />,
+      icon: <IconProfileAlarm className={capabilityGlyphClass} />,
       dark: true,
       illustration: capabilityTasks,
     },
@@ -357,7 +366,7 @@ export default function DashboardPage({
       tone: 'logs',
       count: replyStats.total,
       body: staffdeckDisplayText(employeeSessions[0]?.summary || employeeSessions[0]?.last_agent_question || '暂无对话任务'),
-      icon: <IconProfileCalendar className="employee-cap-glyph" />,
+      icon: <IconProfileCalendar className={capabilityGlyphClass} />,
       dark: true,
       illustration: capabilityLogs,
     },
@@ -517,22 +526,29 @@ export default function DashboardPage({
             <button
               type="button"
               key={item.title}
-              className={`employee-cap-card${item.dark ? ' is-dark' : ''}`}
+              className={`${capabilityCardClass} ${item.dark ? capabilityDarkCardClass : capabilityLightCardClass}`}
+              data-tone={item.dark ? 'dark' : 'light'}
               onClick={() => navigate(item.route)}
             >
-              <IconCardArrow className="employee-cap-arrow" />
-              <span className="employee-cap-group">
-                <span className="employee-cap-head">
+              <IconCardArrow className={capabilityArrowClass} />
+              <span className="flex flex-col gap-[12px]">
+                <span className="flex min-w-0 items-center gap-[6px] pr-[24px]">
                   {item.icon}
-                  <span className="employee-cap-name">{item.title}</span>
+                  <span className={capabilityNameClass}>{item.title}</span>
                 </span>
-                <span className="employee-cap-metric">
-                  <strong>{item.count}</strong>
-                  <span className="employee-cap-bar"><i /></span>
+                <span className="flex flex-col gap-[6px]">
+                  <strong className="text-[24px] leading-none font-semibold text-[#18181a] group-data-[tone=dark]:text-white">{item.count}</strong>
+                  <span className={capabilityBarClass}><span className={capabilityBarFillClass} /></span>
                 </span>
               </span>
-              <span className="employee-cap-desc">{item.body}</span>
-              {item.illustration && <img className="employee-cap-art" src={item.illustration} alt="" />}
+              <span className={capabilityDescClass}>{item.body}</span>
+              {item.illustration && (
+                <img
+                  className="pointer-events-none absolute bottom-0 left-1/2 h-[84px] w-[120px] -translate-x-1/2 object-contain object-bottom"
+                  src={item.illustration}
+                  alt=""
+                />
+              )}
             </button>
           ))}
           </div>

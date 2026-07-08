@@ -170,7 +170,11 @@ export default function EmployeeGalleryPage({
     { value: 'gallery', label: '数字员工广场' },
   ];
 
-  const emptyText = searchTerm ? '没有匹配的数字员工' : '暂无数字员工';
+  const hasSearchTerm = Boolean(searchTerm.trim());
+  const emptyText = hasSearchTerm ? '没有匹配的数字员工' : '暂无数字员工';
+  const emptyDescription = hasSearchTerm
+    ? '换个关键词，或切换员工分类再试试'
+    : '当前分类还没有可用员工';
 
   return (
     <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]" aria-busy={loading}>
@@ -216,10 +220,7 @@ export default function EmployeeGalleryPage({
           />
         ))}
         {!filteredEmployees.length && (
-          <div className="grid h-[262px] w-[294px] max-w-full place-items-center content-center gap-[10px] rounded-[18px] border border-dashed border-[#dfe4ec] bg-[#fbfcfd] font-bold text-[#8b94aa]">
-            <IconSearch className="size-[20px] shrink-0" />
-            <span>{emptyText}</span>
-          </div>
+          <EmployeeGalleryEmptyState title={emptyText} description={emptyDescription} />
         )}
       </div>
 
@@ -246,6 +247,30 @@ export default function EmployeeGalleryPage({
         description="删除后该员工的所有配置将一并移除，操作不可撤销。"
         onConfirm={() => void confirmDelete()}
       />
+    </div>
+  );
+}
+
+function EmployeeGalleryEmptyState({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex h-[262px] w-full items-center justify-center rounded-[20px] border border-dashed border-[#e4e9f2] bg-[#fbfcfe] px-[24px] text-center">
+      <div className="flex max-w-[210px] flex-col items-center">
+        <span className="grid size-[34px] place-items-center rounded-[12px] bg-white text-[#98a2b3] shadow-[0_1px_8px_rgba(70,76,94,0.06)] ring-1 ring-[#edf1f6]">
+          <IconSearch className="size-[16px] shrink-0" />
+        </span>
+        <p className="mt-[12px] text-[14px] font-medium leading-[20px] text-[#7f879a]">
+          {title}
+        </p>
+        <p className="mt-[4px] text-[11px] leading-[17px] text-[#a7adbb]">
+          {description}
+        </p>
+      </div>
     </div>
   );
 }
