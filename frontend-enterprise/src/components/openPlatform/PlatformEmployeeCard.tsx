@@ -82,14 +82,16 @@ export default function PlatformEmployeeCard({
           <div
             key={stat.label}
             className={cn(
-              'flex h-[28px] flex-1 items-center justify-center gap-[2px] border-[0.5px] border-[#e3e7f1] px-[10px]',
+              'flex h-[28px] flex-1 items-center justify-center border-[0.5px] border-[#e3e7f1] px-[10px]',
               index === 0 && 'rounded-l-[10px]',
               index === stats.length - 1 && 'rounded-r-[10px]',
               index > 0 && 'border-l-0',
             )}
           >
-            <span className="text-[10px] font-medium text-[#18181a]">{stat.value}</span>
-            <span className="text-[8px] text-[#464c5e]">{stat.label}</span>
+            <span className="flex items-baseline gap-[2px] leading-none">
+              <span className="text-[10px] font-medium text-[#18181a]">{stat.value}</span>
+              <span className="text-[8px] text-[#464c5e]">{stat.label}</span>
+            </span>
           </div>
         ))}
       </div>
