@@ -132,6 +132,27 @@ def test_message_read_hydrates_knowledge_citation_content_from_concept() -> None
     assert citation["summary"] == "不完整 summary"
 
 
+def test_message_read_compacts_historical_knowledge_citation_labels() -> None:
+    row = Message(
+        id="msg_assistant_historical_citations",
+        tenant_id="tenant_demo",
+        session_id="session_test",
+        role="assistant",
+        content="先参考排查手册。[1] 区域故障则提交报修。[4]",
+        metadata_json={
+            "knowledge_citations": [
+                {"id": "kref_1", "label": "[1]", "title": "排查手册"},
+                {"id": "kref_4", "label": "[4]", "title": "网络故障"},
+            ]
+        },
+    )
+
+    read = message_read(row)
+
+    assert read.content == "先参考排查手册。[1] 区域故障则提交报修。[2]"
+    assert [item["label"] for item in read.metadata["knowledge_citations"]] == ["[1]", "[2]"]
+
+
 def test_turn_trace_falls_back_to_knowledge_citations_without_events() -> None:
     started_at = datetime(2026, 6, 20, 10, 0, 0)
     messages = [

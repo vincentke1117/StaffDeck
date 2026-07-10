@@ -35,7 +35,7 @@ from app.db.models import (
     utc_now,
 )
 from app.feedback import enqueue_feedback_analysis
-from app.knowledge.citations import CITATION_EXCERPT_CHAR_LIMIT
+from app.knowledge.citations import CITATION_EXCERPT_CHAR_LIMIT, compact_knowledge_citation_labels
 from app.llm import LLMClient, LLMError
 from app.security.auth import get_current_user
 from app.security.permissions import agent_owned_by_user, is_admin_user
@@ -146,13 +146,25 @@ def message_read(
     db: Session | None = None,
 ) -> MessageRead:
     metadata = _message_metadata_read(row, db)
+    content = row.content
+    if row.role == "assistant":
+        content, compacted_citations = compact_knowledge_citation_labels(
+            content,
+            metadata.get("knowledge_citations"),
+        )
+        metadata = dict(metadata)
+        if compacted_citations:
+            metadata["knowledge_citations"] = compacted_citations
+        else:
+            metadata.pop("knowledge_citations", None)
+            metadata.pop("knowledge_query", None)
     metadata_turn_id = str(metadata.get("turn_id") or metadata.get("user_message_id") or "").strip()
     return MessageRead(
         id=row.id,
         tenant_id=row.tenant_id,
         session_id=row.session_id,
         role=row.role,
-        content=row.content,
+        content=content,
         metadata=metadata,
         turn_id=turn_id or metadata_turn_id or None,
         created_at=row.created_at.isoformat(),

@@ -721,8 +721,8 @@ def test_finalize_turn_keeps_only_inline_knowledge_citations() -> None:
 
     message = loop.db.added[-1]
     assert isinstance(message, Message)
-    assert message.content == "前端规范包括目录组织和命名规范。[2]"
-    assert [item["label"] for item in message.metadata_json["knowledge_citations"]] == ["[2]"]
+    assert message.content == "前端规范包括目录组织和命名规范。[1]"
+    assert [item["label"] for item in message.metadata_json["knowledge_citations"]] == ["[1]"]
 
 
 def test_merge_scheduled_reply_preserves_each_structured_execution_segment() -> None:

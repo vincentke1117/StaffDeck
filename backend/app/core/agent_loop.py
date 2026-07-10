@@ -46,7 +46,7 @@ from app.db.models import (
 from app.general_skills import GeneralSkillRunner, GeneralSkillSelector
 from app.general_skills.schema import GeneralSkillRunResponse, GeneralSkillSelection
 from app.knowledge import KnowledgeService
-from app.knowledge.citations import knowledge_citations_from_results
+from app.knowledge.citations import compact_knowledge_citation_labels, knowledge_citations_from_results
 from app.knowledge.schema import KnowledgeSearchRequest, KnowledgeSearchResponse
 from app.llm import LLMError, MULTIMODAL_UNSUPPORTED_MESSAGE, model_supports_images
 from app.memory.jobs import enqueue_memory_capture
@@ -6054,7 +6054,16 @@ class AgentLoop:
         metadata = self._assistant_message_metadata(step_result, chat_session, source_message)
         reply = self._normalize_reply_citation_labels(reply, metadata.get("knowledge_citations"))
         reply = self._strip_trailing_citation_summary(reply)
-        metadata = self._metadata_with_reply_citations(metadata, reply)
+        reply, compacted_citations = compact_knowledge_citation_labels(
+            reply,
+            metadata.get("knowledge_citations"),
+        )
+        metadata = dict(metadata)
+        if compacted_citations:
+            metadata["knowledge_citations"] = compacted_citations
+        else:
+            metadata.pop("knowledge_citations", None)
+            metadata.pop("knowledge_query", None)
         if not chat_session.title and source_message:
             fallback_title = self._fallback_session_title_from_message(source_message)
             if fallback_title:
@@ -6130,36 +6139,3 @@ class AgentLoop:
             "",
             reply.rstrip(),
         ).rstrip()
-
-    def _metadata_with_reply_citations(self, metadata: dict[str, Any], reply: str) -> dict[str, Any]:
-        citations = metadata.get("knowledge_citations")
-        if not isinstance(citations, list) or not citations:
-            return metadata
-        used_labels = self._reply_citation_labels(reply, len(citations))
-        if not used_labels:
-            next_metadata = dict(metadata)
-            next_metadata.pop("knowledge_citations", None)
-            next_metadata.pop("knowledge_query", None)
-            return next_metadata
-        next_citations: list[dict[str, Any]] = []
-        for label in sorted(used_labels):
-            index = label - 1
-            if index < 0 or index >= len(citations):
-                continue
-            citation = citations[index]
-            if isinstance(citation, dict):
-                next_citations.append({**citation, "label": f"[{label}]"})
-        next_metadata = dict(metadata)
-        next_metadata["knowledge_citations"] = next_citations
-        return next_metadata
-
-    def _reply_citation_labels(self, reply: str, max_label: int) -> set[int]:
-        labels: set[int] = set()
-        for match in re.finditer(r"\[(\d+)\]", reply):
-            try:
-                label = int(match.group(1))
-            except ValueError:
-                continue
-            if 1 <= label <= max_label:
-                labels.add(label)
-        return labels

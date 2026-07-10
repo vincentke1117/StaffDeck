@@ -8,6 +8,46 @@ CITATION_SUMMARY_CHAR_LIMIT = 800
 CONCEPT_EXCERPT_CHAR_LIMIT = 2400
 
 
+def compact_knowledge_citation_labels(
+    content: str,
+    citations: object,
+) -> tuple[str, list[dict[str, Any]]]:
+    """Keep cited sources and renumber them by first appearance in the reply."""
+    if not isinstance(citations, list) or not citations:
+        return content, []
+
+    citations_by_label: dict[int, dict[str, Any]] = {}
+    for index, citation in enumerate(citations, start=1):
+        if not isinstance(citation, dict):
+            continue
+        label_match = re.fullmatch(r"\[(\d+)\]", str(citation.get("label") or "").strip())
+        label = int(label_match.group(1)) if label_match else index
+        citations_by_label.setdefault(label, citation)
+
+    ordered_labels: list[int] = []
+    for match in re.finditer(r"\[(\d+)\]", content):
+        label = int(match.group(1))
+        if label in citations_by_label and label not in ordered_labels:
+            ordered_labels.append(label)
+
+    if not ordered_labels:
+        return content, []
+
+    label_mapping = {old_label: index for index, old_label in enumerate(ordered_labels, start=1)}
+
+    def replace_label(match: re.Match[str]) -> str:
+        old_label = int(match.group(1))
+        new_label = label_mapping.get(old_label)
+        return f"[{new_label}]" if new_label is not None else match.group(0)
+
+    compacted_content = re.sub(r"\[(\d+)\]", replace_label, content)
+    compacted_citations = [
+        {**citations_by_label[old_label], "label": f"[{label_mapping[old_label]}]"}
+        for old_label in ordered_labels
+    ]
+    return compacted_content, compacted_citations
+
+
 def _compact(value: str, limit: int) -> str:
     text = re.sub(r"\s+", " ", (value or "").strip())
     if len(text) <= limit:

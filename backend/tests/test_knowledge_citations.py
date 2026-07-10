@@ -1,4 +1,39 @@
-from app.knowledge.citations import CITATION_EXCERPT_CHAR_LIMIT, knowledge_citations_from_results
+from app.knowledge.citations import (
+    CITATION_EXCERPT_CHAR_LIMIT,
+    compact_knowledge_citation_labels,
+    knowledge_citations_from_results,
+)
+
+
+def test_compact_knowledge_citation_labels_renumbers_by_first_appearance() -> None:
+    content, citations = compact_knowledge_citation_labels(
+        "先参考手册。[4] 再确认规范。[1] 最后仍参考手册。[4]",
+        [
+            {"id": "kref_1", "label": "[1]", "title": "规范"},
+            {"id": "kref_2", "label": "[2]", "title": "无关来源"},
+            {"id": "kref_3", "label": "[3]", "title": "另一无关来源"},
+            {"id": "kref_4", "label": "[4]", "title": "手册"},
+        ],
+    )
+
+    assert content == "先参考手册。[1] 再确认规范。[2] 最后仍参考手册。[1]"
+    assert [(item["label"], item["title"]) for item in citations] == [
+        ("[1]", "手册"),
+        ("[2]", "规范"),
+    ]
+
+
+def test_compact_knowledge_citation_labels_supports_historical_filtered_metadata() -> None:
+    content, citations = compact_knowledge_citation_labels(
+        "排查步骤来自手册。[1] 区域故障需要报修。[4]",
+        [
+            {"id": "kref_1", "label": "[1]", "title": "排查手册"},
+            {"id": "kref_4", "label": "[4]", "title": "网络故障"},
+        ],
+    )
+
+    assert content == "排查步骤来自手册。[1] 区域故障需要报修。[2]"
+    assert [item["label"] for item in citations] == ["[1]", "[2]"]
 
 
 def test_knowledge_citations_prefer_wiki_concepts_over_evidence_pack() -> None:
