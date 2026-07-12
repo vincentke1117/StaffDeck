@@ -29,6 +29,8 @@ import {
   CHAT_MESSAGE_ITEM_CLASS,
   CHAT_MESSAGE_MODE_CHIP_CLASS,
   CHAT_PLAIN_ANSWER_CLASS,
+  CHAT_QUEUED_STATUS_CLASS,
+  CHAT_QUEUED_STATUS_ROW_CLASS,
   CHAT_TYPING_CARET_CLASS,
   chatBubbleClass,
   chatRowClass,
@@ -108,12 +110,6 @@ export default function MessageBubble({ chat, item, render }: MessageBubbleProps
               </div>
             ) : (
               <div className={CHAT_PLAIN_ANSWER_CLASS}>
-                {queuedMessage && (
-                  <span className={CHAT_MESSAGE_MODE_CHIP_CLASS}>
-                    <StaffdeckIcon name="clock" size={13} />
-                    排队中
-                  </span>
-                )}
                 {scheduledTaskPrompt && (
                   <span className={CHAT_MESSAGE_MODE_CHIP_CLASS}>
                     <StaffdeckIcon name="clock" size={13} />
@@ -206,6 +202,14 @@ export default function MessageBubble({ chat, item, render }: MessageBubbleProps
           )}
         </div>
       </div>
+      {queuedMessage && (
+        <div className={CHAT_QUEUED_STATUS_ROW_CLASS}>
+          <span className={CHAT_QUEUED_STATUS_CLASS} role="status">
+            <StaffdeckIcon name="clock" size={12} />
+            排队中
+          </span>
+        </div>
+      )}
     </div>
   );
 }
